@@ -38,6 +38,24 @@ function sameIdentity(left: ToolLifecycleIdentity, right: ToolLifecycleIdentity)
     && left.name === right.name
 }
 
+function admissionIdentity(event: SessionEvent): ToolLifecycleIdentity | undefined {
+  if (event.type === 'tool/call') {
+    return {
+      callId: event.data.callId,
+      rootCallId: event.data.callId,
+      name: event.data.name,
+    }
+  }
+  if (event.type === 'tool/code-dispatch-start') {
+    return {
+      callId: event.data.subCallId,
+      rootCallId: event.data.rootCallId,
+      name: event.data.name,
+    }
+  }
+  return undefined
+}
+
 function completedCallId(event: SessionEvent): string | undefined {
   if (event.type === 'tool/result') return String(event.data.message.source.callId)
   if (event.type === 'tool/code-dispatch') return String(event.data.subCallId)
@@ -64,6 +82,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   const stages = new WeakMap<object, ToolStage>()
   const openTurns = new WeakMap<Session, number | null>()
   const dispatchRoots = new WeakMap<Session, Map<string, string>>()
+  const admissionIdentities = new WeakMap<Session, Map<string, ToolLifecycleIdentity>>()
   const lifecycles = new WeakMap<Session, Map<string, ToolLifecycleState>>()
   const validateDispatch = (session: Session, event: SessionEvent): void => {
     if (event.type !== 'tool/code-dispatch-start' && event.type !== 'tool/code-dispatch') return
@@ -86,7 +105,20 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     const roots = dispatchRoots.get(session) as Map<string, string>
     roots.set(String(event.data.subCallId), String(event.data.rootCallId))
   }
+  const commitAdmission = (session: Session, event: SessionEvent): void => {
+    const identity = admissionIdentity(event)
+    if (identity === undefined) return
+    const admissions = admissionIdentities.get(session) as Map<string, ToolLifecycleIdentity>
+    admissions.set(String(identity.callId), identity)
+  }
   const validateLifecycle = (session: Session, event: SessionEvent): void => {
+    if (event.type === 'turn/end') {
+      for (const [callId, state] of lifecycles.get(session) ?? []) {
+        if (state.bodyStarted && !state.bodyEnded) {
+          fail(`turn/end completed with an open tool body for callId ${callId}`)
+        }
+      }
+    }
     const callId = completedCallId(event)
     if (callId !== undefined) {
       const state = lifecycles.get(session)?.get(callId)
@@ -101,6 +133,11 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     if (key.length === 0 || String(identity.rootCallId).length === 0 || identity.name.length === 0) {
       fail(`${event.type} must carry non-empty callId, rootCallId, and name`)
       return
+    }
+    const admission = admissionIdentities.get(session)?.get(key)
+    if (admission === undefined) fail(`no tool admission anchor for callId ${key}`)
+    if (!sameIdentity(admission, identity)) {
+      fail(`${event.type} changed lifecycle identity for callId ${key}`)
     }
     const state = lifecycles.get(session)?.get(key)
     if (state !== undefined && !sameIdentity(state.identity, identity)) {
@@ -141,18 +178,20 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   const seed = (session: Session): number | null => {
     let openTurn: number | null = null
     dispatchRoots.set(session, new Map())
+    admissionIdentities.set(session, new Map())
     lifecycles.set(session, new Map())
     for (const event of session.events) {
-      validateDispatch(session, event)
-      validateLifecycle(session, event)
-      commitDispatch(session, event)
-      commitLifecycle(session, event)
-      if (event.type === 'turn/start') openTurn = event.data.turn
-      else if (event.type === 'turn/end') openTurn = null
-      else if ((event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch' || isLifecycleEvent(event))
+      if ((event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch' || isLifecycleEvent(event))
         && openTurn === null) {
         fail(`${event.type} appended outside any open turn`)
       }
+      validateDispatch(session, event)
+      validateLifecycle(session, event)
+      commitDispatch(session, event)
+      commitAdmission(session, event)
+      commitLifecycle(session, event)
+      if (event.type === 'turn/start') openTurn = event.data.turn
+      else if (event.type === 'turn/end') openTurn = null
     }
     openTurns.set(session, openTurn)
     return openTurn
@@ -165,6 +204,7 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
     validateDispatch(session, event)
     validateLifecycle(session, event)
     commitDispatch(session, event)
+    commitAdmission(session, event)
     commitLifecycle(session, event)
     if (event.type === 'turn/start') openTurns.set(session, event.data.turn)
     else if (event.type === 'turn/end') openTurns.set(session, null)
@@ -172,12 +212,12 @@ const install: InvariantInstaller = Object.assign((ctx: Context, fail: Invariant
   ctx.on('internal/dispatch', (_mode, eventName, args) => {
     if (eventName === 'session/event') {
       const [session, event] = args as [Session, SessionEvent]
-      validateDispatch(session, event)
-      validateLifecycle(session, event)
       if ((event.type === 'tool/code-dispatch-start' || event.type === 'tool/code-dispatch' || isLifecycleEvent(event))
         && openTurnFor(session) === null) {
         fail(`${event.type} appended outside any open turn`)
       }
+      validateDispatch(session, event)
+      validateLifecycle(session, event)
       return
     }
     if (eventName === 'tools/pre-execute') {

@@ -90,7 +90,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts)
+Sources: [`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:410`](../packages/core/session/src/types.ts)
 
 ## Events
 
@@ -723,6 +723,34 @@ Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/
 
 ### `tool/*`
 
+<a id="toolbody-end--log-only"></a>
+
+#### `tool/body-end` — log-only
+
+```ts persistence-catalog
+/**
+ * The invoked body promise fulfilled or rejected, before output
+ * validation, rendering, post-execute policy, and finalization.
+ */
+'tool/body-end': ToolBodyEndEventData
+```
+
+Source: [`packages/core/tools/src/types.ts:68`](../packages/core/tools/src/types.ts)
+
+<a id="toolbody-start--log-only"></a>
+
+#### `tool/body-start` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved tool body is about to be invoked. Around-dispatch wrappers
+ * that short-circuit and unknown tools produce no body start.
+ */
+'tool/body-start': ToolBodyStartEventData
+```
+
+Source: [`packages/core/tools/src/types.ts:63`](../packages/core/tools/src/types.ts)
+
 <a id="toolcall--log-only"></a>
 
 #### `tool/call` — log-only
@@ -763,7 +791,7 @@ Source: [`packages/core/session/src/types.ts:279`](../packages/core/session/src/
 'tool/code-dispatch': CodeDispatchEventData
 ```
 
-Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
+Source: [`packages/core/tools/src/types.ts:98`](../packages/core/tools/src/types.ts)
 
 <a id="toolcode-dispatch-start--log-only"></a>
 
@@ -786,7 +814,22 @@ Source: [`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types
 'tool/code-dispatch-start': CodeDispatchStartEventData
 ```
 
-Source: [`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
+Source: [`packages/core/tools/src/types.ts:82`](../packages/core/tools/src/types.ts)
+
+<a id="toolpolicy-result--log-only"></a>
+
+#### `tool/policy-result` — log-only
+
+```ts persistence-catalog
+/**
+ * The ordered pre-execute, optional approval, guard, and cancellation
+ * policy settled. The event precedes dispatch or the policy-owned result;
+ * it contains no reason or error text.
+ */
+'tool/policy-result': ToolPolicyResultEventData
+```
+
+Source: [`packages/core/tools/src/types.ts:58`](../packages/core/tools/src/types.ts)
 
 <a id="toolresult--surface"></a>
 

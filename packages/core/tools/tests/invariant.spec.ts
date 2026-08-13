@@ -93,6 +93,12 @@ describe('tool-pipeline invariants', () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-1'), name: 'echo', arguments: '{}',
+    })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-2'), name: 'echo', arguments: '{}',
+    })
     const allowed = {
       callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
       outcome: 'allowed' as const, source: 'pre-execute' as const,
@@ -110,16 +116,19 @@ describe('tool-pipeline invariants', () => {
     const ctx = await setup()
     const session = ctx.sessions.create()
     session.append('turn/start', { turn: 1 })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-1'), name: 'echo', arguments: '{}',
+    })
     session.append('tool/policy-result', {
-      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'echo',
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
       outcome: 'allowed', source: 'pre-execute',
     }, { ignorable: true })
 
     expect(() => session.append('tool/body-start', {
-      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'changed',
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'changed',
     }, { ignorable: true })).toThrow(/changed lifecycle identity for callId call-1/)
     expect(() => session.append('tool/body-end', {
-      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'echo',
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
       outcome: 'returned', aborted: false,
     }, { ignorable: true })).toThrow(/requires tool\/body-start/)
   })
@@ -134,6 +143,9 @@ describe('tool-pipeline invariants', () => {
     }, { ignorable: true })).toThrow(/tool\/policy-result appended outside any open turn/)
 
     session.append('turn/start', { turn: 1 })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-2'), name: 'echo', arguments: '{}',
+    })
     expect(() => session.append('tool/policy-result', {
       callId: CallId('call-2'), rootCallId: CallId('call-2'), name: 'echo',
       outcome: 'allowed', source: 'pre-execute',
@@ -164,6 +176,66 @@ describe('tool-pipeline invariants', () => {
     }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })).toThrow(/completed with an open tool body/)
   })
 
+  it('rejects turn completion while a tool body remains open', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-1'), name: 'echo', arguments: '{}',
+    })
+    session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })
+    session.append('tool/body-start', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+    }, { ignorable: true })
+
+    expect(() => session.append('turn/end', { turn: 1, reason: { kind: 'completed' } }))
+      .toThrow(/turn\/end.*open tool body.*call-1/)
+  })
+
+  it('requires root lifecycle identity to match its tool-call anchor', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-1'), name: 'echo', arguments: '{}',
+    })
+
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('orphan'), rootCallId: CallId('orphan'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/no tool admission anchor for callId orphan/)
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('other-root'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/changed lifecycle identity for callId call-1/)
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'changed',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/changed lifecycle identity for callId call-1/)
+  })
+
+  it('requires nested lifecycle identity to match its code-dispatch-start anchor', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('tool/code-dispatch-start', {
+      rootCallId: CallId('root'), parentCallId: CallId('root'),
+      subCallId: CallId('child'), name: 'echo', arguments: {},
+    })
+
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('child'), rootCallId: CallId('other-root'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/changed lifecycle identity for callId child/)
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('child'), rootCallId: CallId('root'), name: 'changed',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/changed lifecycle identity for callId child/)
+  })
+
   it('accepts legacy completed calls and a crash tail with an unmatched body start', async () => {
     const ctx = new Context()
     await ctx.plugin(SessionStore)
@@ -179,6 +251,9 @@ describe('tool-pipeline invariants', () => {
         callId: CallId('legacy'), content: [{ type: 'text', text: 'ok' }], isError: false,
       }),
     }, { surfaceOp: 'append', sourceEventSeqs: [legacyCall.seq] })
+    session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('crash-tail'), name: 'echo', arguments: '{}',
+    })
     session.append('tool/policy-result', {
       callId: CallId('crash-tail'), rootCallId: CallId('crash-tail'), name: 'echo',
       outcome: 'allowed', source: 'pre-execute',
