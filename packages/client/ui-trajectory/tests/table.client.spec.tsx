@@ -142,6 +142,27 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('0 ms')).toBeTruthy()
   })
 
+  it('keeps incomplete Total, Approval, and Body spans visibly unknown', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{ turn: 1, groups: [{
+      title: 'Step 1',
+      cells: [{
+        index: 1, kind: 'tool', text: 'write', timeSeconds: null,
+        toolTiming: {
+          total: { startedAt: 1_000, completedAt: null, durationMs: null },
+          policy: { startedAt: 1_000, completedAt: 1_004, durationMs: 4, outcome: 'allowed', source: 'approval' },
+          approval: { startedAt: 1_001, completedAt: null, durationMs: null, outcome: null },
+          body: { startedAt: 1_004, completedAt: null, durationMs: null, outcome: null, aborted: null },
+        },
+      }],
+    }] }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
+
+    expect(screen.getAllByText('—')).toHaveLength(3)
+    expect(screen.getAllByText('Unknown')).toHaveLength(2)
+    expect(screen.getByText('allowed · approval')).toBeTruthy()
+  })
+
   it('breaks output tokens into labeled reasoning and content rows', () => {
     render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))
