@@ -701,13 +701,15 @@ export function fixtureUserPrompts(fixtureText: string): string[] {
  * @returns the realized fixture text.
  */
 export function realizeSeedFixture(scaffold: WebScaffold, fixtureText: string, id: string): string {
+  const jsonStringContent = (value: string): string => JSON.stringify(value).slice(1, -1)
+  const realizedCwd = jsonStringContent(scaffold.workspaceCwd)
   const realized = fixtureText
-    .split('{{sessionId}}').join(id)
-    .split('{{cwd}}').join(scaffold.workspaceCwd)
+    .split('{{sessionId}}').join(jsonStringContent(id))
+    .split('{{cwd}}').join(realizedCwd)
   const fixtureCwd = (JSON.parse(realized.split('\n', 1)[0]!) as { cwd?: string }).cwd
   return fixtureCwd === undefined
     ? realized
-    : realized.split(fixtureCwd).join(scaffold.workspaceCwd)
+    : realized.split(jsonStringContent(fixtureCwd)).join(realizedCwd)
 }
 
 export async function seedSession(
@@ -789,8 +791,11 @@ async function persistSeedSession(
 function normalizeAria(snapshot: string, workspaceCwd: string): string {
   // The session heading renders the workspace's basename, not the full
   // path, so both spellings must collapse to the token.
-  const base = workspaceCwd.split('/').pop()!
+  const base = workspaceCwd.split(/[\\/]/).pop()!
+  // Playwright's YAML-like aria snapshot escapes Windows path separators.
+  const escapedWorkspaceCwd = workspaceCwd.replaceAll('\\', '\\\\')
   return snapshot
+    .split(escapedWorkspaceCwd).join('{{cwd}}')
     .split(workspaceCwd).join('{{cwd}}')
     .split(base).join('{{workspace}}')
     .replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, '{{uuid}}')
