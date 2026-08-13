@@ -21,6 +21,12 @@
       "path": "../../core/session"
     },
     {
+      "path": "../../core/tools"
+    },
+    {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../protocol"
     },
     {

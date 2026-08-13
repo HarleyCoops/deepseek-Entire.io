@@ -25,6 +25,17 @@ The subprocess starts lazily on first use and stays owned by the instance across
 
 `run(input, { sessionId?, onNotification? })` owns one activity interval: it queues the prompt, waits until its `MessageId` appears in a durable `agent/inbox/spliced` receipt, then collects through the next whole-agent `idle`. It returns `RunResult { sessionId, finalResponse, events, notifications }`. `finalResponse` is the last committed root-session assistant text in that interval, not a response causally assigned to the prompt; steering, injected context, and other queued work may contribute before idle. `events` contains root-session events, while `notifications` also contains descendants discovered from `subagent.started`, all in wire order. The result carries no prompt-level status or turn reason. Transport loss, timeout, and protocol violations reject; model outcomes remain observable in the event stream without being attributed to one input.
 
+`toolTraceEvents(result.events)` selects the durable root-session tool chain: calls and results, policy settlement, existing approval pairs, exact tool-body entry and settlement, and nested Code Mode dispatches. `isToolTraceEvent(event)` is the corresponding type guard. Both helpers preserve object identity and event order; they do not create another subscription or infer missing records. Use the raw `events` array for other session facts. Descendant tool records remain in `notifications`; callers can select each `session.event` payload and pass it to the same helpers. Event envelope timestamps are the timing source, and `approval/asked` links its later decision by approval id.
+
+```ts
+import { toolTraceEvents, type RunResult } from '@deepseek-ai/dsh-sdk-client'
+
+declare const result: RunResult
+for (const event of toolTraceEvents(result.events)) {
+  console.log(event.seq, event.type, event.time)
+}
+```
+
 ## HarnessClient
 
 The protocol client under the owned-run API: explicit `start()`/`initialize()`/`prompt()`/`request()`/`close()`, plus notification subscriptions. `prompt()` returns the queued message id as soon as the runtime accepts it; it never waits for agent activity. `subscribe(filter?)` returns a `NotificationSubscription` (awaitable `next()`, non-blocking `tryNext()`, async iteration); `subscribeSessionTree(id)` scopes to one session and the descendants discovered from `subagent.started` lineage edges — the runtime notifies for every session in its context, and scoping is client-side, exactly like the Python SDK. Error surfaces are typed and exported from this package: `JsonRpcResponseError` (wire error response, code/data preserved), `RequestTimeoutError` (a configured bound elapsed), `SdkProtocolError` (a response outside the documented protocol), `TransportClosedError` (the runtime is gone — message carries the exit code and a bounded stderr tail).

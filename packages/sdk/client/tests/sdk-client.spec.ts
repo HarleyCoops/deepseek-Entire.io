@@ -19,6 +19,8 @@ import {
   SdkProtocolError,
   TransportClosedError,
   type HarnessNotification,
+  isToolTraceEvent,
+  toolTraceEvents,
 } from '../src/index.ts'
 import { finalResponse, normalizeInput } from '../src/api.ts'
 
@@ -127,7 +129,7 @@ describe('DeepSeekHarness', () => {
   })
 
   it('keeps events root-scoped while streaming notifications for the session tree', async () => {
-    const harness = harnessWith({ FAKE_SUBAGENT: '1' })
+    const harness = harnessWith({ FAKE_SUBAGENT: '1', FAKE_TOOL_TRACE: '1' })
     const seen: HarnessNotification[] = []
     const result = await harness.run('delegate', {
       sessionId: 'parent-1',
@@ -139,6 +141,12 @@ describe('DeepSeekHarness', () => {
     expect(seen.map(n => n.method)).toContain('subagent.finished')
     const childEvents = seen.filter(n => n.method === 'session.event' && n.params.sessionId === 'parent-1-child')
     expect(childEvents.length).toBeGreaterThan(0)
+    expect(toolTraceEvents(result.events).map(event => event.type)).toEqual([
+      'tool/call', 'tool/policy-result', 'tool/body-start', 'tool/body-end', 'tool/result',
+    ])
+    expect(childEvents.some(notification => (
+      notification.params.event as { type?: string } | undefined
+    )?.type === 'tool/body-start')).toBe(true)
     // RunResult.events is the root session's typed stream; descendants retain
     // their session ids in the raw notification stream above.
     expect(result.events.every(event => event.type !== 'assistant/message'
@@ -510,6 +518,40 @@ describe('stderr tail bound', () => {
 })
 
 describe('pure helpers', () => {
+  it('filters the complete tool trace vocabulary in wire order without copying events', () => {
+    const events = [
+      { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } },
+      { type: 'tool/call', seq: 1, time: 1, data: { turn: 1, step: 1, callId: 'root', name: 'read', arguments: '{}' } },
+      { type: 'approval/asked', seq: 2, time: 2, data: { id: 'approval', toolName: 'read', callId: 'root' } },
+      { type: 'approval/decided', seq: 3, time: 3, data: { id: 'approval', outcome: 'allowed-once' } },
+      { type: 'tool/policy-result', seq: 4, time: 4, ignorable: true, data: { callId: 'root', rootCallId: 'root', name: 'read', outcome: 'allowed', source: 'approval' } },
+      { type: 'tool/body-start', seq: 5, time: 5, ignorable: true, data: { callId: 'root', rootCallId: 'root', name: 'read' } },
+      { type: 'tool/code-dispatch-start', seq: 6, time: 6, data: { rootCallId: 'root', parentCallId: 'root', subCallId: 'child', name: 'stat', arguments: {} } },
+      { type: 'tool/body-end', seq: 7, time: 7, ignorable: true, data: { callId: 'root', rootCallId: 'root', name: 'read', outcome: 'returned', aborted: false } },
+      { type: 'tool/code-dispatch', seq: 8, time: 8, data: { rootCallId: 'root', parentCallId: 'root', subCallId: 'child', name: 'stat', arguments: {}, isError: false, content: [] } },
+      { type: 'tool/result', seq: 9, time: 9, data: { turn: 1, step: 1, message: { role: 'tool', content: [], source: { callId: 'root', toolName: 'read' } }, isError: false } },
+      { type: 'turn/end', seq: 10, time: 10, data: { turn: 1, reason: 'completed' } },
+    ] as never[]
+
+    const trace = toolTraceEvents(events)
+
+    expect(trace.map(event => event.type)).toEqual([
+      'tool/call',
+      'approval/asked',
+      'approval/decided',
+      'tool/policy-result',
+      'tool/body-start',
+      'tool/code-dispatch-start',
+      'tool/body-end',
+      'tool/code-dispatch',
+      'tool/result',
+    ])
+    expect(trace.every((event, index) => event === events[index + 1])).toBe(true)
+    expect(events.map(isToolTraceEvent)).toEqual([
+      false, true, true, true, true, true, true, true, true, true, false,
+    ])
+  })
+
   it('normalizeInput wraps strings and passes blocks through', () => {
     expect(normalizeInput('x')).toEqual([{ type: 'text', text: 'x' }])
     const blocks = [{ type: 'text' as const, text: 'y' }]

@@ -13,6 +13,8 @@ Python packages for driving DeepSeek Harness as a subprocess. The client SDK com
 
 ## Behavior
 
+`RunResult.events` exposes every root-session tool lifecycle record as raw JSON objects in wire order; descendant tool records remain in `RunResult.notifications`, so Python callers can filter the same event names without a second trace stream.
+
 The SDK starts the matching bundled runtime unless the caller selects an explicit channel. The client selects the channel and supplies default configuration; the runtime itself always requires an explicit configuration. The [SDK reference](sdk/README.md) and [runtime carrier reference](sdk-runtime/README.md) own the complete runtime-selection and configuration contracts.
 
 ## Contributor workflows

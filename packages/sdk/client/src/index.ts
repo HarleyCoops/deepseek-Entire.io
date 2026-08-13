@@ -9,8 +9,13 @@
  * @module @deepseek-ai/dsh-sdk-client
  */
 
-export { DeepSeekHarness, HarnessSession } from './api.ts'
-export type { RunOptions } from './api.ts'
+export {
+  DeepSeekHarness,
+  HarnessSession,
+  isToolTraceEvent,
+  toolTraceEvents,
+} from './api.ts'
+export type { RunOptions, ToolTraceEvent, ToolTraceEventType } from './api.ts'
 export {
   HarnessClient,
   RequestTimeoutError,
