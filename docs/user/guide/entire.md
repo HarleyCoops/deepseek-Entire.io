@@ -17,14 +17,34 @@ The adapter is an executable that Entire invokes. Treat installing it like insta
 
 ## Enable one clone
 
-From the root of the Harness workspace clone you want to checkpoint, run:
+First verify the trusted adapter directly. `entire agent list` does not discover external agents in a fresh clone until setup enables that feature.
 
 ```sh
-entire agent list
+entire-agent-dsh info
+```
+
+Then choose how the checkpoint repository should be discoverable.
+
+To connect the clone to Entire.io through GitHub, write project settings:
+
+```sh
+entire enable --project --agent dsh --checkpoint-remote github:OWNER/PRIVATE_REPO
+git add .entire/settings.json
+git commit -m "chore: configure private Entire checkpoints"
+git push
+```
+
+Entire.io discovers a separate checkpoint repository by reading `checkpoint_remote` from the committed `HEAD:.entire/settings.json` of the project repository. Each user should run this command in their own project or fork, name their own private checkpoint repository, review the settings file, and commit it. This repository intentionally ships no checkpoint destination.
+
+If you only need local CLI inspection and private checkpoint pushes, and do not need Entire.io to discover the separate repository, keep the setting clone-local instead:
+
+```sh
 entire enable --local --agent dsh --checkpoint-remote github:OWNER/PRIVATE_REPO
 ```
 
-Selecting the external `dsh` agent enables Entire's `external_agents` discovery and writes clone-local settings. A fresh Entire 0.10 setup selects the per-checkpoint `git-refs` backend; do not assume or automate against a checkpoint branch name. Existing repositories retain their configured backend unless you change it.
+The local form writes `.entire/settings.local.json`. Checkpoint refs can still be pushed, but Entire.io cannot pair them with the project because local or uncommitted settings are not visible through GitHub.
+
+Selecting the external `dsh` agent enables Entire's `external_agents` discovery. After setup, `entire agent list` should include `dsh`. A fresh Entire 0.10 setup selects the per-checkpoint `git-refs` backend; do not assume or automate against a checkpoint branch name. Existing repositories retain their configured backend unless you change it.
 
 Successful setup installs the exact owned marker at `.entire/dsh-hooks.json`:
 
@@ -47,7 +67,7 @@ entire checkpoint explain <checkpoint-id>
 git show --stat HEAD
 ```
 
-Confirm that the checkpoint belongs to the expected clone, contains only the intended Git changes and transcript facts, and targets `github:OWNER/PRIVATE_REPO`. Only then run your normal `git push`; Entire handles the configured checkpoint refs without requiring a checkpoint branch name.
+Confirm that the checkpoint belongs to the expected clone, contains only the intended Git changes and transcript facts, and targets `github:OWNER/PRIVATE_REPO`. For Entire.io pairing, also confirm the intended `.entire/settings.json` is committed in the `HEAD` you will push. Only then run your normal `git push`; Entire handles the configured checkpoint refs without requiring a checkpoint branch name.
 
 Entire's Git diff is authoritative for changed files. Harness supplies conservative file hints for presentation, not a substitute for reviewing the diff.
 
@@ -88,7 +108,8 @@ To remove only the DSH adapter integration while keeping other Entire agents, us
 
 ## Troubleshooting
 
-- **`dsh` is absent from `entire agent list`** — Confirm `entire-agent-dsh` is on the same `PATH` as Entire, run `entire-agent-dsh info`, and rerun enable so `external_agents` is set for this clone.
+- **`dsh` is absent from `entire agent list`** — On a fresh clone, run `entire-agent-dsh info` first and then run enable; the initial list intentionally skips external discovery until `external_agents` is set. If it remains absent after setup, confirm `entire-agent-dsh` is on the same `PATH` as Entire.
+- **Checkpoint refs reached the private repository but Entire.io cannot find them** — Commit and push `.entire/settings.json` with the intended `checkpoint_remote`; `.entire/settings.local.json` and uncommitted project settings are deliberately invisible to Entire.io.
 - **No marker appears** — Run enable from the intended Git clone root. Do not copy a marker from another clone.
 - **Harness succeeds but no checkpoint appears** — Bridge and hook failures are intentionally diagnostic-only. Check Harness warnings, `entire status`, executable discovery, and local sidecar/reference permissions.
 - **The marker is rejected** — The adapter accepts only the exact owned regular file. A symlink, directory, unknown JSON field, different agent, or unsupported schema version fails closed.

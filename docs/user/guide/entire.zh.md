@@ -17,14 +17,34 @@
 
 ## 为一个克隆启用
 
-在需要建立检查点的 Harness 工作区克隆根目录中运行：
+先直接验证可信的适配器。全新克隆在设置启用该功能之前，`entire agent list` 不会发现外部 agent。
 
 ```sh
-entire agent list
+entire-agent-dsh info
+```
+
+然后选择检查点仓库应如何被发现。
+
+若要通过 GitHub 将该克隆连接到 Entire.io，请写入项目设置：
+
+```sh
+entire enable --project --agent dsh --checkpoint-remote github:OWNER/PRIVATE_REPO
+git add .entire/settings.json
+git commit -m "chore: configure private Entire checkpoints"
+git push
+```
+
+Entire.io 通过读取项目仓库已提交的 `HEAD:.entire/settings.json` 中的 `checkpoint_remote` 来发现独立检查点仓库。每位用户都应在自己的项目或 fork 中运行此命令，填写自己的私有检查点仓库，审查设置文件后再提交。本仓库不会预置任何检查点目标。
+
+如果你只需要本地 CLI 检查和私有检查点推送，不需要 Entire.io 发现独立仓库，则可将设置保留在克隆本地：
+
+```sh
 entire enable --local --agent dsh --checkpoint-remote github:OWNER/PRIVATE_REPO
 ```
 
-选择外部 `dsh` agent 会启用 Entire 的 `external_agents` 发现，并写入克隆本地设置。全新的 Entire 0.10 设置会选择按检查点存储的 `git-refs` 后端；不要假定某个检查点分支名称，也不要围绕它编写自动化。现有仓库会保留已配置的后端，除非你主动更改。
+本地形式会写入 `.entire/settings.local.json`。检查点 refs 仍可推送，但 Entire.io 无法将其与项目配对，因为本地或未提交的设置不会通过 GitHub 可见。
+
+选择外部 `dsh` agent 会启用 Entire 的 `external_agents` 发现。设置完成后，`entire agent list` 应包含 `dsh`。全新的 Entire 0.10 设置会选择按检查点存储的 `git-refs` 后端；不要假定某个检查点分支名称，也不要围绕它编写自动化。现有仓库会保留已配置的后端，除非你主动更改。
 
 设置成功后会在 `.entire/dsh-hooks.json` 安装精确的自有标记：
 
@@ -47,7 +67,7 @@ entire checkpoint explain <checkpoint-id>
 git show --stat HEAD
 ```
 
-确认检查点属于预期克隆、只包含预期 Git 变更与文本记录事实，并指向 `github:OWNER/PRIVATE_REPO`。确认无误后，才运行常规 `git push`；Entire 会处理已配置的检查点 refs，无需检查点分支名称。
+确认检查点属于预期克隆、只包含预期 Git 变更与文本记录事实，并指向 `github:OWNER/PRIVATE_REPO`。若要与 Entire.io 配对，还要确认预期的 `.entire/settings.json` 已提交到即将推送的 `HEAD`。确认无误后，才运行常规 `git push`；Entire 会处理已配置的检查点 refs，无需检查点分支名称。
 
 Entire 的 Git diff 才是变更文件的权威依据。Harness 只为展示提供保守的文件提示，不能替代对 diff 的审查。
 
@@ -88,7 +108,8 @@ entire disable --uninstall
 
 ## 排错
 
-- **`entire agent list` 中没有 `dsh`**：确认 `entire-agent-dsh` 与 Entire 使用相同的 `PATH`，运行 `entire-agent-dsh info`，再重新启用，使该克隆设置 `external_agents`。
+- **`entire agent list` 中没有 `dsh`**：在全新克隆中，先运行 `entire-agent-dsh info`，再运行启用命令；初始列表会在设置 `external_agents` 前有意跳过外部发现。若设置后仍缺失，请确认 `entire-agent-dsh` 与 Entire 使用相同的 `PATH`。
+- **检查点 refs 已到达私有仓库，但 Entire.io 找不到它们**：请提交并推送包含预期 `checkpoint_remote` 的 `.entire/settings.json`；`.entire/settings.local.json` 和未提交的项目设置会有意对 Entire.io 不可见。
 - **未出现标记**：请从预期 Git 克隆根目录运行启用命令。不要从其他克隆复制标记。
 - **Harness 成功，但未出现检查点**：bridge 和钩子失败被有意限制为仅诊断。请检查 Harness 警告、`entire status`、可执行文件发现以及本地伴随文件/引用权限。
 - **标记被拒绝**：适配器只接受精确匹配的自有普通文件。符号链接、目录、未知 JSON 字段、不同 agent 或不支持的 schema 版本都会快速失败。
