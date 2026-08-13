@@ -2,71 +2,110 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness（`dsh`）会把 agent 会话中每一个可观测事实——每一条提示词、每一条消息，以及**模型发起的每一次工具调用和每个工具返回的结果**——提交到唯一一条规范的、仅追加的事件日志中。本文档说明 Harness 如何把这些工具调用面暴露为类型化事件，以及可选的 [Entire](https://github.com/entireio/cli) bridge 如何把这些已提交事件导出为与 Git 关联的检查点。
+DeepSeek Harness（`dsh`）是由 [DeepSeek AI](https://deepseek.com) 开发的开源 agent harness。它运行一个 agent 循环：模型读取工作区、调用工具并产生变更——并把**这个过程中的每一个可观测事实**提交到唯一一条仅追加的追踪日志中。本文档端到端地解释这条追踪：工具调用如何暴露为事件、为什么捕获这些事件很重要、它们如何流入 App 与 SDK，以及可选的 [Entire](https://github.com/entireio/cli) bridge 如何把它们变成持久的、与 Git 关联的检查点。
 
-## 规范会话日志
+一切皆插件，由 [Cordis](https://github.com/cordiverse/cordis) 驱动。
 
-每个会话一条日志，仅追加，每条记录都带有序号与时间戳。它是 Harness 派生一切内容的唯一事实来源：
+## App
 
-- 模型历史——模型实际看到的那些消息；
-- 实时 UI 渲染（Chat 与 Trajectory）；
-- TypeScript 与 Python SDK 通知；
+Harness 附带一个 Web UI，用两种视图呈现同一条追踪：
+
+- **Chat** —— 对话视图，每条 assistant 消息及其发起的工具调用以内联方式渲染，让你看到 *agent 当时做了什么*。
+- **Trajectory** —— 会话工具追踪的结构化、可筛选渲染：每个根工具调用连同其嵌套 Code Mode 子调用、策略评估、审批决定、执行体计时与最终结果，以带时长的树形结构展示。这是*审计视图*——用于回答“它到底运行了什么、按什么顺序、看到了什么、为什么”。
+
+两个视图都从同一条规范的 `session/event` 流渲染；不存在第二个事实来源。
+
+## 规范会话追踪
+
+每个会话一条日志，仅追加，每条记录带有序号与时间戳。它是以下内容的唯一事实来源：
+
+- 模型历史（模型实际看到的内容）；
+- Chat 与 Trajectory 视图；
+- TypeScript 与 Python SDK；
 - 持久化与重放；
 - 遥测与压缩；
 - Entire 导出。
 
-规则是**模型可见即已记录**：任何进入模型请求的内容都必须能从日志重建，并由运行时不变式断言。因此，新增模型可见输入就意味着新增一种会话事件类型。
+规则是**模型可见即已记录**：任何进入模型请求的内容都必须能从日志重建，并由运行时不变式断言。新增模型可见输入就意味着新增一种会话事件。
 
-## 工具调用暴露
+## 工具调用如何暴露
 
-每一次工具交互都会提交为一串类型化事件，它们通过调用标识相互关联，因此读者可以从发起到最终结果完整重建一次调用的生命周期——包括嵌套子调用及其计时——而无需第二条追踪流。
+每一次工具交互都提交为一串类型化事件，它们通过调用标识相互关联。一次调用的完整生命周期可重建——包括嵌套子调用及其计时——而无需第二条追踪流。
 
-### `tool/call`——根调用
+```mermaid
+flowchart LR
+  M["Model"] -->|"tool/call (name, args, callId, turn, step)"| C["Root call"]
+  C --> P["tool/policy-result: allowed / denied"]
+  P --> A["approval/asked -> approval/decided (when required)"]
+  A --> B["tool/body-start"]
+  B --> N["nested Code Mode: tool/code-dispatch-start -> tool/code-dispatch"]
+  N --> E["tool/body-end: returned / threw / aborted"]
+  E --> R["tool/result: authoritative model-facing outcome"]
+```
 
-当模型调用工具时，Harness 会提交一条 `tool/call` 事件，携带：
+- **`tool/call`** —— 根调用：`name`、解析后的 `arguments`、稳定的 `callId`，以及 `turn` 与 `step`。
+- **`tool/policy-result`** —— 策略评估的结果与来源（调用在派发前被放行还是拒绝）。
+- **`approval/asked` → `approval/decided`** —— 需要人工审批时的审计对。
+- **`tool/body-start` / `tool/body-end`** —— 框定实际执行；`body-end` 只记录返回/抛出/中止。
+- **`tool/code-dispatch-start` / `tool/code-dispatch`** —— 每个嵌套 Code Mode 子调用，带 `rootCallId`/`parentCallId`/`subCallId`，保留完整树形结构。
+- **`tool/result`** —— 经校验与执行后策略之后的最终、权威的模型可见结果。
 
-- 工具 `name`；
-- 解析后的 `arguments`；
-- 稳定的 `callId`；
-- 该调用所在的 `turn` 与 `step`。
+由于每条事件都带时间戳，策略等待、执行体时长与总时长都可重建。
 
-### 嵌套的 Code Mode 派发
+## 追踪流
 
-一次根调用可以通过 Code Mode 进一步调用其他工具。每个嵌套调用都会单独提交，从而保留完整树形结构：
+```mermaid
+flowchart LR
+  R["Agent loop + tool registry"] -->|"committed facts"| L["Canonical SessionEvent log"]
+  L --> W["Web UI: Chat + Trajectory"]
+  L --> S["TypeScript / Python SDK"]
+  L --> BR["Dormant Entire bridge"]
+  MK["Clone-local marker .entire/dsh-hooks.json"] -->|"activates"| BR
+  BR --> SC["Bounded JSONL sidecar"]
+  BR --> HK["entire hooks dsh &lt;lifecycle&gt;"]
+  SC --> AD["entire-agent-dsh adapter"]
+  HK --> AD
+  AD --> CP["Entire checkpoint: git refs + private remote"]
+```
 
-- `tool/code-dispatch-start` 记录子调用开始，携带 `rootCallId`、`parentCallId` 与 `subCallId`；
-- `tool/code-dispatch` 记录子调用的 `name`、`arguments`、`content` 以及是否出错（`isError`）。
+## 为什么捕获追踪
 
-### 策略与审批
+追踪是“agent 运行了”与“这是 agent 到底做了什么、为什么”之间的差别。捕获它可实现：
 
-- `tool/policy-result` 记录工具调用策略评估的结果与来源——例如，一次调用在派发前是被放行还是被拒绝；
-- 当调用需要人工审批时，`approval/asked` 与 `approval/decided` 构成审计对：问了什么、如何答复。
+- **调试** —— 把错误结果回溯到确切的工具调用、其参数与输出。
+- **可复现** —— 从日志重放会话；模型所见无遗漏。
+- **审计与安全** —— 每次策略决策与审批都被记录，可证明什么被允许、什么未被允许。
+- **搜索与续做** —— 借助 Entire 检查点，查找过去的工作并继续。
+- **训练** —— 追踪是改进 agent 本身的原始素材（见下文）。
 
-### 工具执行体计时
+## 追踪与 RL 开发
 
-`tool/body-start` 与 `tool/body-end` 框定工具执行体的实际执行。`tool/body-end` 只记录执行体是返回还是抛出，以及是否被中止。
+每个完成的会话都是一条**轨迹（trajectory）**：(observation, action, outcome) 的序列——用户提示词、每次带工具调用的 assistant 轮次、每个工具结果，以及最终的接受或纠正。这正是强化学习（RL）后训练所消费的形态。
 
-由于每条事件都带时间戳，调用的策略等待、执行体时长与总时长都能从日志重建。
+```mermaid
+flowchart LR
+  S["Agent sessions"] --> T["Captured traces: prompt -> tool calls -> results -> outcome"]
+  T --> SFT["Supervised fine-tuning on accepted trajectories"]
+  T --> RM["Reward modeling from preference pairs"]
+  RM --> RL["Policy optimization (RL)"]
+  SFT --> RL
+  RL --> A["Improved agent"]
+  A --> S
+```
 
-### `tool/result`——权威结果
+捕获追踪让这个循环落到实处：
 
-`tool/result` 是调用面向模型的结果：经过校验与任何执行后策略之后的最终值。即使存在用于计时与诊断的执行体级事件，它仍是权威结果。
+- **监督微调（SFT）** —— 被接受的轨迹是“一次好的运行长什么样”的高质量示范。
+- **奖励建模（Reward modeling）** —— 接受与拒绝的完成对教奖励模型什么结果是可取的。
+- **RL** —— 在大量轨迹上，针对该奖励模型优化策略，闭环。
 
-### 日志的消费方
-
-Web UI 直接从 `session/event` 渲染 Chat 与 Trajectory。TypeScript 与 Python SDK 通过易用的工具追踪筛选暴露同一批通知。Entire bridge 则把这些事件的有限子集投影到伴随文件中以生成检查点。
+Harness 提供持久、完整、可导出的轨迹——每次工具调用、结果、计时、策略结果与审批——以规范化形式（伴随文件 / Entire 检查点）直接可用于该流水线。
 
 ## 将追踪日志写入 Entire
 
-### 什么是 Entire 检查点
+[Entire](https://github.com/entireio/cli) 是一个独立工具，用于创建与 Git 关联的 agent 工作检查点：一个检查点把会话产生的 Git 变更与该 agent 所做之事的追踪配对，便于审查、检索与续做。
 
-[Entire](https://github.com/entireio/cli) 是一个独立工具，用于创建与 Git 关联的 agent 工作检查点：一个检查点把会话产生的 Git 变更与该 agent 所做之事的文本记录配对，从而便于审查、检索与续做。
-
-Harness 并不强制要求 Entire。该集成是可选的导出——没有 Entire 的精确克隆本地标记时，Harness 不做任何伴随文件 I/O，也不启动 Entire 进程。
-
-### bridge
-
-该导出由基础组合包插件 `@deepseek-ai/dsh-entire-bridge`（`packages/hooks/entire-bridge`）实现。它是会话日志的一个休眠观察者。
+该集成可选且默认关闭。它由基础组合包插件 `@deepseek-ai/dsh-entire-bridge`（`packages/hooks/entire-bridge`）实现，是会话日志的一个休眠观察者。
 
 ### 激活
 
@@ -82,43 +121,21 @@ Harness 并不强制要求 Entire。该集成是可选的导出——没有 Enti
 
 当会话在带有标记的克隆中启动时，bridge 会：
 
-1. 把已提交事实投影到规范化的 JSONL 伴随文件中——每条事件一行——位于操作系统临时目录下：
+1. 把已提交事实投影到规范化的 JSONL 伴随文件中——每条事件一行——位于操作系统临时目录下（`<temp>/entire-dsh/<仓库根目录的 sha256>/sessions/<session-id>.jsonl`）；
+2. 在 `.entire/tmp/dsh-<session-id>.json` 写入无正文引用；
+3. 发出固定参数的生命周期钩子——`session-start`、`turn-start`、`turn-end`、`compaction`、`session-end`、`subagent-start`、`subagent-end`——通过 `entire hooks dsh <hook>` 每次经 stdin 写入一个带版本的 JSON 载荷。
 
-   `<temp>/entire-dsh/<仓库根目录的 sha256>/sessions/<session-id>.jsonl`
-
-2. 在 `.entire/tmp/dsh-<session-id>.json` 写入无正文的引用，其中仅包含伴随文件路径与有限的会话元数据。
-
-3. 发出固定参数的生命周期钩子，供适配器消费，每次通过 stdin 写入一个带版本的 JSON 载荷：
-
-   `entire hooks dsh <hook>`，包括 `session-start`、`turn-start`、`turn-end`、`compaction`、`session-end`、`subagent-start` 与 `subagent-end`。
-
-适配器读取伴随文件，重组工具追踪，并生成 Entire 检查点（git refs，可选私有远端）。
+适配器读取伴随文件，重组工具追踪，并生成 Entire 检查点。
 
 ### 捕获内容
 
-默认投影包括：
-
-- 真实用户提示词；
-- 已提交的 assistant 消息与规范化用量；
-- 根级 `tool/call` 与 `tool/result` 记录；
-- 嵌套 Code Mode 派发及其结果；
-- 带有限结果与来源的 `tool/policy-result`；
-- 需要审批时的 `approval/asked` / `approval/decided` 审计对；
-- 用于计时的 `tool/body-start` / `tool/body-end`（返回/抛出/中止）；
-- 压缩摘要；
-- 会话与子 agent 谱系。
-
-该投影省略原始 assistant 分片、请求头、系统提示词、完整工具 schema、环境数据、凭据、不透明适配器状态以及内部注入消息。明显的凭据键值会被掩码，每条完整的工具结果记录会按字节截断。
-
-`strict` 模式更进一步：它会省略工具输入/结果与类推理的 assistant 内容，同时保留生命周期、提示词、最终 assistant 文本、用量与文件名。
+默认投影包括真实用户提示词、已提交的 assistant 消息与用量、根级 `tool/call`/`tool/result`、嵌套 Code Mode 派发、`tool/policy-result`、审批审计对、`tool/body-start`/`body-end` 计时、压缩与谱系。它省略系统提示词、请求头、工具 schema、环境数据、凭据与原始 assistant 分片；明显的凭据键值会被掩码，过大的工具结果会按字节截断。`strict` 模式还会进一步省略工具输入/结果与类推理内容。
 
 ### 保证
 
-bridge 在模型工作之后观察已提交事件。它不增加提示词内容或工具，不消耗模型 token，也不能改变模型请求、审批、工具执行或工具结果。伴随文件与钩子失败仅是警告——它们绝不会导致 Harness 工作失败，也不是检查点已创建的证明。Entire 的 Git diff 仍是文件变更的权威记录。
+bridge 在模型工作**之后**观察已提交事件：它不增加提示词内容或工具，不消耗模型 token，也不能改变模型请求、审批、工具执行或工具结果。伴随文件与钩子失败仅是警告。Entire 的 Git diff 仍是文件变更的权威记录。
 
 ### 启用
-
-该集成需要 Entire CLI（0.10）以及 `PATH` 上受信任的 `entire-agent-dsh` 适配器：
 
 ```sh
 entire-agent-dsh info
@@ -127,4 +144,4 @@ entire enable --local --agent dsh --checkpoint-remote github:OWNER/PRIVATE_REPO
 
 ### 存储与安全
 
-伴随文件与原生 Harness 会话日志是敏感的本地数据。请使用独立的私有检查点远端，并在首次推送前在本地审查检查点。掩码是尽力而为，并非保密保证。
+伴随文件与原生会话日志是敏感的本地数据。请使用独立的私有检查点远端，并在首次推送前审查检查点。掩码是尽力而为。
