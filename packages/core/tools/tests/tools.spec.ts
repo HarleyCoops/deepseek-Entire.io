@@ -3,6 +3,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { createUserMessage, CallId, HarnessError, type ContentBlock  } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import { Session, SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import ApprovalService, { type ApprovalOutcome, type ApprovalRequest } from '@deepseek-ai/dsh-user-approval'
 import ToolRuntime, {
   defineContentToolFixture, defineTool, JsonSchemaError, parameterSchemaSpecToJsonSchema, validateArgs, ToolArgsError, ToolNotFoundError,
@@ -12,6 +13,17 @@ import ToolRuntime, {
 } from '@deepseek-ai/dsh-tools'
 
 const testToolSignal = new AbortController().signal
+
+function traceAgent(id: string): { agent: Agent; session: Session } {
+  const session = Session.create(SessionId(id))
+  session.append('turn/start', { turn: 1 })
+  return { agent: { session } as Agent, session }
+}
+
+function toolLifecycleEvents(session: Session): SessionEvent[] {
+  const lifecycleTypes = new Set(['tool/policy-result', 'tool/body-start', 'tool/body-end'])
+  return session.events.filter(event => lifecycleTypes.has(String(event.type)))
+}
 
 async function setup() {
   const ctx = new Context()
@@ -91,6 +103,312 @@ describe('ToolRuntime', () => {
     const result = await ctx.tools.execute({ signal: testToolSignal, callId: CallId('c1'), name: 'echo', arguments: { text: 'hi' } })
     expect(result).toEqual({ content: [{ type: 'text', text: 'hi' }], isError: false, value: 'hi' })
     expect(observed).toEqual(result)
+  })
+
+  it('records one allowed policy settlement and the exact successful body boundary', async () => {
+    const ctx = await setup()
+    const { agent, session } = traceAgent('tool-lifecycle-success')
+    ctx.tools.register(echoTool)
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal,
+      callId: CallId('child-call'),
+      rootCallId: CallId('root-call'),
+      name: 'echo',
+      arguments: { text: 'hi' },
+      agent,
+    })
+
+    expect(result.isError).toBe(false)
+    expect(toolLifecycleEvents(session)).toEqual([
+      {
+        type: 'tool/policy-result', seq: 1, time: expect.any(Number), ignorable: true,
+        data: {
+          callId: 'child-call', rootCallId: 'root-call', name: 'echo',
+          outcome: 'allowed', source: 'pre-execute',
+        },
+      },
+      {
+        type: 'tool/body-start', seq: 2, time: expect.any(Number), ignorable: true,
+        data: { callId: 'child-call', rootCallId: 'root-call', name: 'echo' },
+      },
+      {
+        type: 'tool/body-end', seq: 3, time: expect.any(Number), ignorable: true,
+        data: {
+          callId: 'child-call', rootCallId: 'root-call', name: 'echo',
+          outcome: 'returned', aborted: false,
+        },
+      },
+    ])
+  })
+
+  it('settles approval before recording the allowed policy result', async () => {
+    const ctx = await setup()
+    await ctx.plugin(ApprovalService)
+    const { agent, session } = traceAgent('tool-lifecycle-approval')
+    ctx.tools.register(echoTool)
+    ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('allowed-once'))
+    ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask', reason: 'confirm' }))
+
+    await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('approved'), name: 'echo', arguments: { text: 'ok' }, agent,
+    })
+
+    expect(session.events.map(event => event.type)).toEqual([
+      'turn/start',
+      'approval/asked',
+      'approval/decided',
+      'tool/policy-result',
+      'tool/body-start',
+      'tool/body-end',
+    ])
+    const policy = toolLifecycleEvents(session)[0]
+    expect(policy).toMatchObject({
+      type: 'tool/policy-result', ignorable: true,
+      data: { callId: 'approved', rootCallId: 'approved', name: 'echo', outcome: 'allowed', source: 'approval' },
+    })
+  })
+
+  it('records approval rejection and unavailability as approval-owned denials', async () => {
+    for (const outcome of ['rejected', 'unavailable'] as const) {
+      const ctx = await setup()
+      await ctx.plugin(ApprovalService)
+      const { agent, session } = traceAgent(`tool-lifecycle-approval-${outcome}`)
+      ctx.tools.register(echoTool)
+      if (outcome === 'rejected') {
+        ctx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('rejected'))
+      }
+      ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal,
+        callId: CallId(`approval-${outcome}`),
+        name: 'echo',
+        arguments: {},
+        agent,
+      })
+
+      expect(result.isError).toBe(true)
+      expect(session.events.map(event => event.type)).toEqual([
+        'turn/start', 'approval/asked', 'approval/decided', 'tool/policy-result',
+      ])
+      expect(toolLifecycleEvents(session)).toEqual([expect.objectContaining({
+        data: expect.objectContaining({ outcome: 'denied', source: 'approval' }) as unknown,
+      })])
+    }
+  })
+
+  it('records an approval-stage throw as a failed approval policy', async () => {
+    const ctx = await setup()
+    const { agent, session } = traceAgent('tool-lifecycle-approval-failed')
+    ctx.tools.register(echoTool)
+    ctx.provide('approval', {
+      request: () => Promise.reject(new Error('approval failed')),
+    } as unknown as ApprovalService)
+    ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask' }))
+
+    const result = await ctx.tools.execute({
+      signal: testToolSignal, callId: CallId('approval-failed'), name: 'echo', arguments: {}, agent,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(toolLifecycleEvents(session)).toEqual([expect.objectContaining({
+      data: expect.objectContaining({ outcome: 'failed', source: 'approval' }) as unknown,
+    })])
+  })
+
+  it('records the decisive denial source without entering the body', async () => {
+    const cases = [
+      {
+        id: 'pre-denied',
+        configure: (ctx: Context) => ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => (
+          { kind: 'deny', reason: 'pre denied' }
+        )),
+        source: 'pre-execute',
+      },
+      {
+        id: 'approval-unavailable',
+        configure: (ctx: Context) => ctx.on('tools/pre-execute', async (): Promise<PreToolDecision> => (
+          { kind: 'ask', reason: 'approval required' }
+        )),
+        source: 'approval',
+      },
+      {
+        id: 'guard-denied',
+        configure: (ctx: Context) => ctx.tools.guard(() => 'guard denied'),
+        source: 'guard',
+      },
+    ] as const
+
+    for (const policyCase of cases) {
+      const ctx = await setup()
+      const { agent, session } = traceAgent(`tool-lifecycle-${policyCase.id}`)
+      ctx.tools.register(echoTool)
+      policyCase.configure(ctx)
+
+      const result = await ctx.tools.execute({
+        signal: testToolSignal, callId: CallId(policyCase.id), name: 'echo', arguments: { text: 'blocked' }, agent,
+      })
+
+      expect(result.isError).toBe(true)
+      expect(toolLifecycleEvents(session)).toEqual([expect.objectContaining({
+        type: 'tool/policy-result',
+        ignorable: true,
+        data: {
+          callId: policyCase.id,
+          rootCallId: policyCase.id,
+          name: 'echo',
+          outcome: 'denied',
+          source: policyCase.source,
+        },
+      })])
+    }
+  })
+
+  it('distinguishes approval cancellation, caller cancellation, and failed policy stages', async () => {
+    const approvalCtx = await setup()
+    await approvalCtx.plugin(ApprovalService)
+    const approvalTrace = traceAgent('tool-lifecycle-approval-cancel')
+    approvalCtx.tools.register(echoTool)
+    approvalCtx.on('approval/request', () => Promise.resolve<ApprovalOutcome>('cancelled'))
+    approvalCtx.on('tools/pre-execute', async (): Promise<PreToolDecision> => ({ kind: 'ask' }))
+    await approvalCtx.tools.execute({
+      signal: testToolSignal, callId: CallId('approval-cancel'), name: 'echo', arguments: {}, agent: approvalTrace.agent,
+    })
+
+    const callerCtx = await setup()
+    const callerTrace = traceAgent('tool-lifecycle-caller-cancel')
+    const callerController = new AbortController()
+    callerCtx.tools.register(echoTool)
+    callerCtx.on('tools/pre-execute', async (_exec, next) => {
+      const decision = await next()
+      callerController.abort('cancel after policy')
+      return decision
+    })
+    await callerCtx.tools.execute({
+      signal: callerController.signal, callId: CallId('caller-cancel'), name: 'echo', arguments: {}, agent: callerTrace.agent,
+    })
+
+    const failedCases = [
+      {
+        id: 'pre-failed',
+        configure: (ctx: Context) => ctx.on('tools/pre-execute', async () => { throw new Error('pre failed') }),
+        source: 'pre-execute',
+      },
+      {
+        id: 'guard-failed',
+        configure: (ctx: Context) => ctx.tools.guard(() => { throw new Error('guard failed') }),
+        source: 'guard',
+      },
+    ] as const
+    const failedPolicies: SessionEvent[] = []
+    for (const failedCase of failedCases) {
+      const ctx = await setup()
+      const trace = traceAgent(`tool-lifecycle-${failedCase.id}`)
+      ctx.tools.register(echoTool)
+      failedCase.configure(ctx)
+      await ctx.tools.execute({
+        signal: testToolSignal, callId: CallId(failedCase.id), name: 'echo', arguments: {}, agent: trace.agent,
+      })
+      failedPolicies.push(...toolLifecycleEvents(trace.session))
+    }
+
+    expect(toolLifecycleEvents(approvalTrace.session)).toEqual([expect.objectContaining({
+      data: expect.objectContaining({ outcome: 'cancelled', source: 'approval' }) as unknown,
+    })])
+    expect(toolLifecycleEvents(callerTrace.session)).toEqual([expect.objectContaining({
+      data: expect.objectContaining({ outcome: 'cancelled', source: 'caller' }) as unknown,
+    })])
+    expect(failedPolicies).toEqual([
+      expect.objectContaining({ data: expect.objectContaining({ outcome: 'failed', source: 'pre-execute' }) as unknown }),
+      expect.objectContaining({ data: expect.objectContaining({ outcome: 'failed', source: 'guard' }) as unknown }),
+    ])
+  })
+
+  it('records body settlement before validation and omits the body pair when no body runs', async () => {
+    const invalidCtx = await setup()
+    const invalidTrace = traceAgent('tool-lifecycle-invalid-return')
+    invalidCtx.tools.register(defineTool({
+      name: 'invalid-return',
+      description: 'returns the wrong type',
+      parameters: {},
+      output: {
+        schema: { type: 'string' },
+        render: (_args, value) => [{ type: 'text', text: value }],
+      },
+      async execute() { return 42 as never },
+    }))
+    const invalid = await invalidCtx.tools.execute({
+      signal: testToolSignal, callId: CallId('invalid-return'), name: 'invalid-return', arguments: {}, agent: invalidTrace.agent,
+    })
+
+    const throwingCtx = await setup()
+    const throwingTrace = traceAgent('tool-lifecycle-body-throw')
+    throwingCtx.tools.register({ ...echoTool, name: 'body-throw', async execute() { throw new Error('body failed') } })
+    await throwingCtx.tools.execute({
+      signal: testToolSignal, callId: CallId('body-throw'), name: 'body-throw', arguments: {}, agent: throwingTrace.agent,
+    })
+
+    const unknownCtx = await setup()
+    const unknownTrace = traceAgent('tool-lifecycle-unknown')
+    await unknownCtx.tools.execute({
+      signal: testToolSignal, callId: CallId('unknown'), name: 'unknown', arguments: {}, agent: unknownTrace.agent,
+    })
+
+    const wrapperCtx = await setup()
+    const wrapperTrace = traceAgent('tool-lifecycle-wrapper')
+    wrapperCtx.tools.register(echoTool)
+    wrapperCtx.on('tools/execute', async () => ({
+      content: [{ type: 'text', text: 'short' }], isError: false, value: 'short',
+    }))
+    await wrapperCtx.tools.execute({
+      signal: testToolSignal, callId: CallId('wrapper'), name: 'echo', arguments: {}, agent: wrapperTrace.agent,
+    })
+
+    expect(invalid.isError).toBe(true)
+    expect(toolLifecycleEvents(invalidTrace.session).map(event => event.data)).toEqual([
+      expect.objectContaining({ outcome: 'allowed' }),
+      { callId: 'invalid-return', rootCallId: 'invalid-return', name: 'invalid-return' },
+      { callId: 'invalid-return', rootCallId: 'invalid-return', name: 'invalid-return', outcome: 'returned', aborted: false },
+    ])
+    expect(toolLifecycleEvents(throwingTrace.session).at(-1)).toMatchObject({
+      type: 'tool/body-end', data: { outcome: 'threw', aborted: false },
+    })
+    expect(toolLifecycleEvents(unknownTrace.session).map(event => event.type)).toEqual(['tool/policy-result'])
+    expect(toolLifecycleEvents(wrapperTrace.session).map(event => event.type)).toEqual(['tool/policy-result'])
+  })
+
+  it('records the body aborted flag at settlement without abandoning the body', async () => {
+    const ctx = await setup()
+    const { agent, session } = traceAgent('tool-lifecycle-body-abort')
+    const controller = new AbortController()
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<string>()
+    ctx.tools.register({
+      ...echoTool,
+      name: 'settles-after-abort',
+      async execute() {
+        entered.resolve()
+        return await release.promise
+      },
+    })
+
+    const pending = ctx.tools.execute({
+      signal: controller.signal,
+      callId: CallId('settles-after-abort'),
+      name: 'settles-after-abort',
+      arguments: {},
+      agent,
+    })
+    await entered.promise
+    controller.abort('body cancelled')
+    release.resolve('late success')
+    await pending
+
+    expect(toolLifecycleEvents(session).at(-1)).toMatchObject({
+      type: 'tool/body-end',
+      data: { outcome: 'returned', aborted: true },
+    })
   })
 
   it('projects presentation metadata from the canonical value', async () => {
@@ -1633,6 +1951,7 @@ describe('ToolRuntime', () => {
 
   it('lets argument materialization failure win over a pre-aborted signal', async () => {
     const ctx = await setup()
+    const { agent, session } = traceAgent('tool-lifecycle-invalid-arguments')
     let observed = 0
     ctx.on('tools/result', () => { observed += 1 })
 
@@ -1641,6 +1960,7 @@ describe('ToolRuntime', () => {
       name: 'missing',
       arguments: { invalid: () => undefined },
       signal: AbortSignal.abort('already cancelled'),
+      agent,
     })
 
     expect(result).toEqual({
@@ -1649,6 +1969,7 @@ describe('ToolRuntime', () => {
       error: { message: 'tool execution arguments must be losslessly JSON-serializable' },
     })
     expect(observed).toBe(1)
+    expect(toolLifecycleEvents(session)).toEqual([])
   })
 
   it('a pre-execute deny short-circuits before tools/execute (the seam never runs)', async () => {

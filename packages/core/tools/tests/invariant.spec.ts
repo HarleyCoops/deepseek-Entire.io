@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
-import { CallId } from '@deepseek-ai/dsh-llm'
+import { CallId, createToolResultMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolExecution, ToolExecutionResult, ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import * as ToolsInvariant from '@deepseek-ai/dsh-tools/invariant'
@@ -87,6 +87,108 @@ describe('tool-pipeline invariants', () => {
 
     const anonymous = Object.freeze(execution({ name: '' }))
     expect(() => { emitResult(ctx, anonymous, outcome()) }).toThrow(/non-empty name and callId/)
+  })
+
+  it('rejects duplicate policy results and a body start without an allowed policy', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    const allowed = {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+      outcome: 'allowed' as const, source: 'pre-execute' as const,
+    }
+    session.append('tool/policy-result', allowed, { ignorable: true })
+
+    expect(() => session.append('tool/policy-result', allowed, { ignorable: true }))
+      .toThrow(/tool\/policy-result repeated for callId call-1/)
+    expect(() => session.append('tool/body-start', {
+      callId: CallId('call-2'), rootCallId: CallId('call-2'), name: 'echo',
+    }, { ignorable: true })).toThrow(/requires an allowed tool\/policy-result/)
+  })
+
+  it('rejects lifecycle identity drift and a body end without a start', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })
+
+    expect(() => session.append('tool/body-start', {
+      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'changed',
+    }, { ignorable: true })).toThrow(/changed lifecycle identity for callId call-1/)
+    expect(() => session.append('tool/body-end', {
+      callId: CallId('call-1'), rootCallId: CallId('root'), name: 'echo',
+      outcome: 'returned', aborted: false,
+    }, { ignorable: true })).toThrow(/requires tool\/body-start/)
+  })
+
+  it('requires lifecycle records to be turn-enclosed', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })).toThrow(/tool\/policy-result appended outside any open turn/)
+
+    session.append('turn/start', { turn: 1 })
+    expect(() => session.append('tool/policy-result', {
+      callId: CallId('call-2'), rootCallId: CallId('call-2'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    })).toThrow(/tool\/policy-result must be marked ignorable/)
+  })
+
+  it('rejects a completed tool result while its body remains open', async () => {
+    const ctx = await setup()
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    const call = session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('call-1'), name: 'echo', arguments: '{}',
+    })
+    session.append('tool/policy-result', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })
+    session.append('tool/body-start', {
+      callId: CallId('call-1'), rootCallId: CallId('call-1'), name: 'echo',
+    }, { ignorable: true })
+
+    expect(() => session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('call-1'), content: [{ type: 'text', text: 'ok' }], isError: false,
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })).toThrow(/completed with an open tool body/)
+  })
+
+  it('accepts legacy completed calls and a crash tail with an unmatched body start', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    const session = ctx.sessions.create()
+    session.append('turn/start', { turn: 1 })
+    const legacyCall = session.append('tool/call', {
+      turn: 1, step: 1, callId: CallId('legacy'), name: 'echo', arguments: '{}',
+    })
+    session.append('tool/result', {
+      turn: 1,
+      step: 1,
+      message: createToolResultMessage({
+        callId: CallId('legacy'), content: [{ type: 'text', text: 'ok' }], isError: false,
+      }),
+    }, { surfaceOp: 'append', sourceEventSeqs: [legacyCall.seq] })
+    session.append('tool/policy-result', {
+      callId: CallId('crash-tail'), rootCallId: CallId('crash-tail'), name: 'echo',
+      outcome: 'allowed', source: 'pre-execute',
+    }, { ignorable: true })
+    session.append('tool/body-start', {
+      callId: CallId('crash-tail'), rootCallId: CallId('crash-tail'), name: 'echo',
+    }, { ignorable: true })
+
+    await ctx.plugin(InvariantRegistry)
+    await expect(ctx.plugin(ToolsInvariant).then(() => undefined)).resolves.toBeUndefined()
   })
 
   it('requires code-dispatch records to be turn-enclosed', async () => {

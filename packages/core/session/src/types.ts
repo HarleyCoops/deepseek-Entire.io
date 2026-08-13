@@ -388,6 +388,12 @@ export interface SurfaceIntent {
   sourceEventSeqs?: number[]
 }
 
+/** Optional envelope metadata accepted only by log-only {@link SessionEvent} appends. */
+export interface NonSurfaceEventIntent {
+  /** Mark the event safe for readers that do not recognize its type to skip. */
+  ignorable?: true
+}
+
 /**
  * One immutable entry in the session log.
  *

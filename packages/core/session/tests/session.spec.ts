@@ -11,6 +11,12 @@ import SessionStore, {
 } from '@deepseek-ai/dsh-session'
 import type { CreateSessionOptions, SessionEventType, SessionHeader, SessionSurface, TodoItem } from '@deepseek-ai/dsh-session'
 
+declare module '@deepseek-ai/dsh-session/types' {
+  interface SessionEventMap {
+    'test/log-only': { value: string }
+  }
+}
+
 describe('Session', () => {
   it('exposes one stable readonly surface view', () => {
     const session = Session.create(SessionId('surface-view'))
@@ -792,6 +798,37 @@ describe('Session', () => {
     expect(reads).toBe(1)
     expect(event.data).toEqual({ value: 'accepted' })
     expect(session.events).toEqual([event])
+  })
+
+  it('commits only the ignorable marker from a non-surface append intent', () => {
+    const session = Session.create(SessionId('append-ignorable'))
+
+    const event = session.append(
+      'test/log-only',
+      { value: 'observed' },
+      { ignorable: true, unsupported: 'discarded' } as { ignorable: true },
+    )
+
+    expect(event).toEqual({
+      type: 'test/log-only',
+      seq: 0,
+      time: expect.any(Number),
+      data: { value: 'observed' },
+      ignorable: true,
+    })
+    expect(session.events).toEqual([event])
+
+    if (false) {
+      const surfaceMessage = createUserMessage({
+        content: [{ type: 'text', text: 'surface' }], source: { kind: 'user' },
+      })
+      session.append(
+        'user/message',
+        surfaceMessage,
+        // @ts-expect-error surface events keep their existing SurfaceIntent-only append contract
+        { surfaceOp: 'append', ignorable: true },
+      )
+    }
   })
 
   it('rejects non-JSON surface metadata before appending the event', () => {

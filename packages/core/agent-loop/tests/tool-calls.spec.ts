@@ -234,10 +234,14 @@ describe('tool-call scheduler: model-order results despite out-of-order settleme
     await new Promise(r => setTimeout(r, 5))
     const beforeFirst = events(agent).filter(e => e.type === 'tool/result')
     expect(beforeFirst).toEqual([])
+    expect(events(agent).filter(e => e.type === 'tool/body-end').map(e => e.data.callId))
+      .toEqual([CallId('c2')])
     gated.release('1')
     await waitForIdle(ctx, agent)
 
     const results = events(agent).filter(e => e.type === 'tool/result')
+    const bodyEnds = events(agent).filter(e => e.type === 'tool/body-end')
+    expect(bodyEnds.map(e => e.data.callId)).toEqual([CallId('c2'), CallId('c1')])
     expect(results.map(e => e.data.message.source.callId)).toEqual([CallId('c1'), CallId('c2')])
   })
 
