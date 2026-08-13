@@ -1,0 +1,6 @@
+dsh-hooks.json
+tmp/
+settings.local.json
+metadata/
+logs/
+redactors/local/
