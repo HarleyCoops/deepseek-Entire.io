@@ -1,4 +1,4 @@
-# DeepSeek Harness
+# DeepSeek Harness + Entire.io
 
 [English](README.md) | 中文
 
