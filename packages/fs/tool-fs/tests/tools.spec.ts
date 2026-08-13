@@ -9,6 +9,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from 'node:
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { type ToolResult } from '@deepseek-ai/dsh-tools'
 import { FileSystem, FsError, FsTargetKey, FsVersion } from '@deepseek-ai/dsh-fs'
@@ -127,7 +128,10 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 describe('session cwd resolution', () => {
   const execution = (cwd?: string) => cwd === undefined
     ? {}
-    : { agent: { session: { header: { cwd } } } }
+    : (() => {
+        const id = SessionId('fs-policy-target')
+        return { agent: { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd }) } }
+      })()
 
   it('retains ordinary spelling but resolves the cwd before parent traversal', () => {
     const cwd = process.cwd()
@@ -276,7 +280,7 @@ describe('read tool', () => {
 
   it('records observed state so a follow-up edit by the same session is authorized', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-observation-owner'))
     fs.files.set('key:a.txt', 'hello')
     expect((await call(ctx, 'read', { file_path: 'a.txt' }, { session })).isError).toBe(false)
     const edited = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'hello', new_string: 'bye' }, { session })
@@ -394,7 +398,7 @@ describe('formatReadOutput footer variants', () => {
 describe('write tool', () => {
   it('formats a create result and uses createIfAbsent (unobserved, with the gate)', async () => {
     const { ctx, fs } = await setup()
-    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: { header: {} } })
+    const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'hi' }, { session: Session.create(SessionId('fs-write-create')) })
     expect(result.isError).toBe(false)
     if (result.isError) throw new Error('expected write success')
     expect(result.value).toEqual({ path: '/abs/a.txt', operation: 'create', before: null, after: 'hi' })
@@ -422,7 +426,7 @@ describe('write tool', () => {
 describe('edit tool', () => {
   it('formats a single-replacement success after a read', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-edit-single'))
     fs.files.set('key:a.txt', 'a')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session })
@@ -433,7 +437,7 @@ describe('edit tool', () => {
 
   it('formats the replace_all success message distinctly', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-edit-replace-all'))
     fs.files.set('key:a.txt', 'a a a')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b', replace_all: true }, { session })
@@ -464,7 +468,7 @@ describe('edit tool', () => {
   it('propagates FS_NOT_OBSERVED when the file was never read (the gate decides)', async () => {
     const { ctx, fs } = await setup()
     fs.files.set('key:a.txt', 'hello')
-    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: { header: {} } })
+    const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'a', new_string: 'b' }, { session: Session.create(SessionId('fs-edit-unobserved')) })
     expect(result.isError).toBe(true)
     expect(result.error).toMatchObject({ info: { code: 'FS_NOT_OBSERVED' } })
   })
@@ -603,7 +607,7 @@ describe('result-time contextual diff (meta + presentResult)', () => {
 
   it('edit: execute attaches the applied hunk as meta { diffs }', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-diff-edit-meta'))
     fs.files.set('key:a.txt', withContext)
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'OLD', new_string: 'NEW' }, { session })
@@ -615,7 +619,7 @@ describe('result-time contextual diff (meta + presentResult)', () => {
 
   it('edit: presentResult turns the meta into a diff result card', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-diff-edit-present'))
     fs.files.set('key:a.txt', withContext)
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'edit', { file_path: 'a.txt', old_string: 'OLD', new_string: 'NEW' }, { session })
@@ -628,7 +632,7 @@ describe('result-time contextual diff (meta + presentResult)', () => {
 
   it('write OVERWRITE: execute attaches a contextual hunk; presentResult renders a diff card', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-diff-write-overwrite'))
     fs.files.set('key:a.txt', withContext)
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'a\nb\nc\nNEW\nd\ne\nf\n' }, { session })
@@ -642,7 +646,7 @@ describe('result-time contextual diff (meta + presentResult)', () => {
     // A create has no prior content, yet the completed replacement view must
     // remain a diff instead of clobbering the pending new-file diff with text.
     const { ctx } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-diff-write-create'))
     const result = await call(ctx, 'write', { file_path: 'new.txt', content: 'fresh\n' }, { session })
     expect(result.isError).toBe(false)
     expect(result.meta).toEqual({ diffs: [] })
@@ -652,7 +656,7 @@ describe('result-time contextual diff (meta + presentResult)', () => {
 
   it('write OVERWRITE with identical content: an empty applied-diff projection falls back to a whole-file diff', async () => {
     const { ctx, fs } = await setup()
-    const session = { header: {} }
+    const session = Session.create(SessionId('fs-diff-write-identical'))
     fs.files.set('key:a.txt', 'same\n')
     await call(ctx, 'read', { file_path: 'a.txt' }, { session })
     const result = await call(ctx, 'write', { file_path: 'a.txt', content: 'same\n' }, { session })
@@ -802,13 +806,13 @@ describe('sandbox escalation API (write/edit)', () => {
 
   /** A fake agent whose session records appends (the approval audit trail), mid-turn, carrying the given events for the fold. */
   function escalationAgent(events: Array<{ type: string; data?: Record<string, unknown> }> = []): object {
+    const id = SessionId('sess-fs-esc')
+    const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: '/session-project' })
+    session.append('turn/start', {})
+    for (const event of events) session.append(event.type as never, event.data ?? {})
     return {
       id: 'agent-fs-esc',
-      session: {
-        header: { version: 0, id: 'sess-fs-esc', createdAt: 0, cwd: '/session-project' },
-        events: [{ type: 'turn/start' }, ...events],
-        append: (type: string, data: Record<string, unknown>) => { events.push({ type, data }) },
-      },
+      session,
     }
   }
 
@@ -848,13 +852,13 @@ describe('sandbox escalation API (write/edit)', () => {
   it('a plain write stamps the default mode with the calling session root', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent())
-    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'workspace-write', workspaceRoot: resolve('/session-project'), sessionId: 'sess-fs-esc' }])
   })
 
   it('a standing session override folds onto the stamp', async () => {
     const { ctx, fs } = await setupConfining()
     await call(ctx, 'write', { file_path: 'a.txt', content: 'x' }, escalationAgent([{ type: 'sandbox/mode', data: { mode: 'read-only' } }]))
-    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'read-only', workspaceRoot: resolve('/session-project'), sessionId: 'sess-fs-esc' }])
   })
 
   it('a denied write maps to the shared marker plus the escalation hint (isError)', async () => {
@@ -887,7 +891,7 @@ describe('sandbox escalation API (write/edit)', () => {
       agent: escalationAgent() as never,
       signal: new AbortController().signal,
     })
-    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project') }])
+    expect(fs.stamped).toEqual([{ mode: 'danger-full-access', workspaceRoot: resolve('/session-project'), sessionId: 'sess-fs-esc' }])
   })
 
   it('a rejected escalation fails closed with its own text and never mutates', async () => {

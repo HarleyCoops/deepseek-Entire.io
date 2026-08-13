@@ -8,6 +8,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import Lsp from '@deepseek-ai/dsh-lsp'
 import * as LspLocal from '@deepseek-ai/dsh-lsp-stdio'
 import * as TimeoutPolicy from '@deepseek-ai/dsh-tool-call-timeout-policy'
@@ -72,12 +73,13 @@ async function mount(hang: boolean, timeoutMs?: number): Promise<Context> {
 let seq = 0
 const testToolSignal = new AbortController().signal
 function call(ctx: Context, args: unknown) {
+  const id = SessionId(`lsp-integration-${seq + 1}`)
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: `int-${++seq}` as never,
     name: 'lsp',
     arguments: args,
-    agent: { session: { header: { cwd: ws } } } as never,
+    agent: { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: ws }) } as never,
   })
 }
 
