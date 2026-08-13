@@ -4,7 +4,7 @@ English | [中文](entire.zh.md)
 
 [Entire](https://github.com/entireio/cli) checkpoints can preserve a reviewable record of Harness work beside the Git changes it produced. The integration is optional: without Entire's exact clone-local marker, Harness does no sidecar I/O and starts no Entire process.
 
-> Current availability: the `entire-agent-dsh` source currently lives on the `codex/dsh-adapter` branch of `entireio/external-agents`; it is not yet a released adapter. Its protocol and compliance tests pass, but a real Harness-to-Entire lifecycle remains unverified until the Harness bridge is merged and an end-to-end checkpoint capture passes. This paragraph is the single status statement to update after that verification.
+> Current availability: `entire-agent-dsh` remains an unreleased preview on the `codex/dsh-adapter` branch of `HarleyCoops/external-agents`. Its protocol and compliance suites pass. On August 13, 2026, a real Windows headless turn exercised the bridge, captured the tool lifecycle, produced an Entire `git-refs` checkpoint, and pushed that checkpoint ref to a separate private GitHub repository. Compaction and subagent paths remain covered by automated contract tests rather than that live smoke.
 
 ## Before you enable it
 

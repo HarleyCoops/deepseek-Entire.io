@@ -4,7 +4,7 @@
 
 [Entire](https://github.com/entireio/cli) 检查点可以在 Harness 工作产生的 Git 变更旁保留一份可审查记录。该集成是可选的：没有 Entire 的精确克隆本地标记时，Harness 不进行伴随文件 I/O，也不启动 Entire 进程。
 
-> 当前可用性：`entire-agent-dsh` 源码目前位于 `entireio/external-agents` 的 `codex/dsh-adapter` 分支，尚未发布为适配器。其协议和合规测试已经通过，但在 Harness bridge 合并且端到端检查点捕获通过之前，真实 Harness-to-Entire 生命周期仍未验证。完成验证后，只需更新这一段状态说明。
+> 当前可用性：`entire-agent-dsh` 仍是未发布的预览版，位于 `HarleyCoops/external-agents` 的 `codex/dsh-adapter` 分支。其协议与合规测试套件已通过。2026 年 8 月 13 日，一次真实 Windows 无头任务完整运行了 bridge，捕获工具生命周期，生成 Entire `git-refs` 检查点，并将该检查点 ref 推送到独立的私有 GitHub 仓库。压缩与 subagent 路径仍由自动化契约测试覆盖，未包含在这次真实冒烟测试中。
 
 ## 启用前准备
 
