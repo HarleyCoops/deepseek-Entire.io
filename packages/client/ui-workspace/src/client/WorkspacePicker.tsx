@@ -10,6 +10,7 @@
  */
 import type { ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -93,6 +94,8 @@ export function WorkspacePickFlow({
   // framework-bound hook keeps occupancy live: flow plugins activate (and
   // HMR-reload) independently of this menu's renders.
   const flowAvailable = useDirectoryFlow(occupied => occupied)
+  const showFolderHelp = flowAvailable
+    && ((!addOnly && selectedId === undefined) || open || notice !== null)
   // An occupant that unloads mid-interaction leaves nobody to cancel: an
   // open flow over an empty hole withdraws so the menu actions come back.
   // flowOpen is a dependency because the flow can also OPEN over an already
@@ -189,8 +192,25 @@ export function WorkspacePickFlow({
       openDirectoryFlow()
       return
     }
+    setNotice(null)
     onPick(id as WorkspaceId)
   }
+
+  const feedback = (
+    <>
+      {showFolderHelp && <div className={css.pickerHelp}>{t('picker.folderOnly')}</div>}
+      {notice === 'opening' && <div className={css.pickerStatus} role="status">{t('picker.opening')}</div>}
+      {notice === 'cancelled' && (
+        <div className={css.pickerStatus} role="status">
+          <span>{t('picker.cancelled')}</span>
+          <Button variant="outline" className={css.noticeAction} onClick={() => { setNotice(null) }}>{t('picker.dismiss')}</Button>
+        </div>
+      )}
+    </>
+  )
+  const renderedFeedback = addOnly && (showFolderHelp || notice !== null) && typeof document !== 'undefined'
+    ? createPortal(<div className={css.pickerOverlay}>{feedback}</div>, document.body)
+    : feedback
 
   return (
     <>
@@ -207,14 +227,7 @@ export function WorkspacePickFlow({
         getAnchorRect={getAnchorRect}
       />
       {open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
-      {open && <div className={css.pickerHelp}>{t('picker.folderOnly')}</div>}
-      {notice === 'opening' && <div className={css.pickerStatus} role="status">{t('picker.opening')}</div>}
-      {notice === 'cancelled' && (
-        <div className={css.pickerStatus} role="status">
-          <span>{t('picker.cancelled')}</span>
-          <Button variant="outline" className={css.noticeAction} onClick={() => { setNotice(null) }}>{t('picker.dismiss')}</Button>
-        </div>
-      )}
+      {renderedFeedback}
       {renderDirectoryFlow(flowOwner)}
       <Modal
         open={errorOpen}

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useRef, useState } from 'react'
 import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
@@ -117,6 +118,40 @@ function chooseAdd(): void {
 }
 
 describe('WorkspacePicker', () => {
+  it('keeps folder-only guidance visible through the controlled cold-start handoff', () => {
+    const occupancy = occupancySource()
+    const { probe, renderSlot } = flowProbe()
+
+    function ColdStartOwner() {
+      const [open, setOpen] = useState(false)
+      const anchorRef = useRef<HTMLButtonElement>(null)
+      return (
+        <>
+          <button ref={anchorRef} type="button" onClick={() => { setOpen(true) }}>Choose workspace folder</button>
+          <WorkspacePicker
+            open={open}
+            anchorRef={anchorRef}
+            useSessions={hook(sessions)}
+            useWorkspaces={hook(workspaceState([]))}
+            onPick={vi.fn()}
+            onClose={() => { setOpen(false) }}
+            createWorkspace={vi.fn()}
+            useDirectoryFlow={occupancy.useDirectoryFlow}
+            renderSlot={renderSlot}
+            t={enT}
+          />
+        </>
+      )
+    }
+
+    render(<ColdStartOwner />)
+    expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Choose workspace folder' }))
+    expect(probe.owner!.open).toBe(true)
+    expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('Opening folder chooser…')
+  })
+
   it('explains folder-only selection and announces the opening interaction', () => {
     const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
     expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
@@ -167,6 +202,17 @@ describe('WorkspacePicker', () => {
     expect(b.onPick).not.toHaveBeenCalled()
     expect(screen.getByRole('status').textContent).toContain('No folder selected')
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('No folder selected')).toBeNull()
+  })
+
+  it('clears a cancelled notice when an existing Workspace is selected', () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose workspace folder' }))
+    act(() => { b.probe.owner!.onCancel() })
+    expect(screen.getByText('No folder selected')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
+    expect(b.onPick).toHaveBeenCalledWith(wid('alpha'))
     expect(screen.queryByText('No folder selected')).toBeNull()
   })
 

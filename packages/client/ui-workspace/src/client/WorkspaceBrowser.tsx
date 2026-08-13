@@ -1066,7 +1066,8 @@ export function WorkspaceBrowser({
             </Tooltip>
           )}
         </div>
-        {/* Add flow + its error dialog (same package — direct composition). */}
+        {/* The flow stays beside its trigger; its visible feedback body-portals
+            above this fixed-height, clipped header. */}
         <WorkspacePickFlow
           t={t}
           open={wsPickerOpen}
