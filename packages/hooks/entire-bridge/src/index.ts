@@ -38,6 +38,7 @@ export type {
 export const name = 'entire-bridge'
 /** Services required before the bridge can observe sessions and spawn hooks. */
 export const inject = ['sessions', 'subprocess']
+const HOOK_TIMEOUT_MS = 30_000
 
 /** Clone-local bridge limits and privacy mode. */
 export interface Config {
@@ -49,8 +50,6 @@ export interface Config {
   hookGraceMs?: number
   /** In-memory byte cap for each ignored Entire hook output stream. */
   hookOutputMaxBytes?: number
-  /** Operating-system temporary root; configurable for deployments and tests. */
-  tempRoot?: string
 }
 
 /** Runtime-validated bridge config. */
@@ -59,7 +58,6 @@ export const Config: z<Config> = z.object({
   toolResultMaxBytes: z.number().min(256).default(65_536),
   hookGraceMs: z.number().min(1).default(1000),
   hookOutputMaxBytes: z.number().min(1).default(4096),
-  tempRoot: z.string().default(tmpdir()),
 })
 
 interface ActiveCapture {
@@ -70,7 +68,12 @@ interface ActiveCapture {
   readonly sessionRef: string
 }
 
-function lifecycleRecord(session: Session, lifecycle: EntireHookName, time: number, data: Record<string, unknown> = {}): Record<string, unknown> {
+function lifecycleRecord(
+  session: Session,
+  lifecycle: EntireHookName,
+  time: number,
+  data: Record<string, unknown> = {},
+): Record<string, unknown> {
   return {
     schema_version: 1,
     kind: lifecycle,
@@ -123,50 +126,51 @@ class SessionCapture {
   private queue: Promise<void> = Promise.resolve()
   private active: ActiveCapture | undefined
   private ended = false
-  private readonly projector: EntireTranscriptProjector
+  private projector: EntireTranscriptProjector | undefined
 
   constructor(
     private readonly ctx: Context,
     private readonly session: Session,
     config: Required<Config>,
   ) {
-    this.projector = new EntireTranscriptProjector({
-      id: String(session.id),
-      ...session.header.parentSession === undefined ? {} : { parentSessionId: String(session.header.parentSession) },
-    }, {
-      strict: config.strict,
-      toolResultMaxBytes: config.toolResultMaxBytes,
-      ...session.header.cwd === undefined ? {} : { repositoryRoot: session.header.cwd },
-    })
     this.enqueue(async () => {
       const cwd = session.header.cwd
       if (cwd === undefined) return
       const marker = await readEntireMarker(cwd)
       if (marker === undefined) return
+      this.projector = new EntireTranscriptProjector({
+        id: String(session.id),
+        ...session.header.parentSession === undefined ? {} : { parentSessionId: String(session.header.parentSession) },
+      }, {
+        strict: config.strict,
+        toolResultMaxBytes: config.toolResultMaxBytes,
+        repositoryRoot: marker.repositoryRoot,
+      })
       const storage = new EntireSidecarStorage({
         repositoryRoot: marker.repositoryRoot,
         sessionId: String(session.id),
         createdAt: session.header.createdAt,
         ...session.header.parentSession === undefined ? {} : { parentSessionId: String(session.header.parentSession) },
-        tempRoot: config.tempRoot,
-        warn: message => ctx.logger.warn(message),
+        tempRoot: tmpdir(),
+        warn: (message) => { ctx.logger.warn(message) },
       })
       const time = session.header.createdAt
-      await storage.append(lifecycleRecord(session, 'session-start', time))
+      if (!await storage.append(lifecycleRecord(session, 'session-start', time))) return
       const active: ActiveCapture = {
         marker,
         storage,
         runner: new EntireHookRunner(ctx.subprocess, {
           cwd: marker.repositoryRoot,
           graceMs: config.hookGraceMs,
+          timeoutMs: HOOK_TIMEOUT_MS,
           outputMaxBytes: config.hookOutputMaxBytes,
-          warn: message => ctx.logger.warn(message),
+          warn: (message) => { ctx.logger.warn(message) },
         }),
         transcriptPath: await realpath(storage.paths.sidecarPath),
         sessionRef: await realpath(storage.paths.sidecarPath),
       }
       this.active = active
-      void active.runner.run('session-start', hookPayload(session, active, 'session-start', time))
+      await active.runner.run('session-start', hookPayload(session, active, 'session-start', time))
     })
   }
 
@@ -174,12 +178,12 @@ class SessionCapture {
     this.enqueue(async () => {
       const active = this.active
       if (active === undefined) return
-      const record = this.projector.project(event)
+      const record = this.projector?.project(event)
       if (record === undefined) return
-      await active.storage.append(record)
+      if (!await active.storage.append(record)) return
       const mapped = hookForEvent(event)
       if (mapped !== undefined) {
-        void active.runner.run(mapped.hook, hookPayload(this.session, active, mapped.hook, event.time, mapped.data))
+        await active.runner.run(mapped.hook, hookPayload(this.session, active, mapped.hook, event.time, mapped.data))
       }
     })
   }
@@ -188,8 +192,8 @@ class SessionCapture {
     this.enqueue(async () => {
       const active = this.active
       if (active === undefined) return
-      await active.storage.append(lifecycleRecord(this.session, hook, time, data))
-      void active.runner.run(hook, hookPayload(this.session, active, hook, time, data))
+      if (!await active.storage.append(lifecycleRecord(this.session, hook, time, data))) return
+      await active.runner.run(hook, hookPayload(this.session, active, hook, time, data))
     })
   }
 
@@ -202,8 +206,8 @@ class SessionCapture {
       const linked = hook === 'subagent-start'
         ? { ...data, subagent_ref: `${String(child.session.id)}.jsonl` }
         : data
-      await active.storage.append(lifecycleRecord(this.session, hook, time, linked))
-      void active.runner.run(hook, hookPayload(this.session, active, hook, time, linked))
+      if (!await active.storage.append(lifecycleRecord(this.session, hook, time, linked))) return
+      await active.runner.run(hook, hookPayload(this.session, active, hook, time, linked))
     })
   }
 
@@ -219,8 +223,9 @@ class SessionCapture {
       const active = this.active
       if (active === undefined) return
       const time = Date.now()
-      await active.storage.append(lifecycleRecord(this.session, 'session-end', time))
-      await active.runner.run('session-end', hookPayload(this.session, active, 'session-end', time))
+      if (await active.storage.append(lifecycleRecord(this.session, 'session-end', time))) {
+        await active.runner.run('session-end', hookPayload(this.session, active, 'session-end', time))
+      }
       await active.storage.drain()
       await active.runner.dispose()
     })
@@ -245,9 +250,9 @@ export function apply(ctx: Context, config: Config = {}): void {
     toolResultMaxBytes: config.toolResultMaxBytes ?? 65_536,
     hookGraceMs: config.hookGraceMs ?? 1000,
     hookOutputMaxBytes: config.hookOutputMaxBytes ?? 4096,
-    tempRoot: config.tempRoot ?? tmpdir(),
   }
   const captures = new Map<Session, SessionCapture>()
+  const endings = new Map<Session, Promise<void>>()
   const subagentRuns = new Map<string, { parent: SessionCapture; child: SessionCapture }>()
   const adopt = (session: Session): SessionCapture => {
     let capture = captures.get(session)
@@ -257,9 +262,24 @@ export function apply(ctx: Context, config: Config = {}): void {
     }
     return capture
   }
+  const endCapture = (session: Session): Promise<void> => {
+    const existing = endings.get(session)
+    if (existing !== undefined) return existing
+    const capture = captures.get(session)
+    if (capture === undefined) return Promise.resolve()
+    const ending = capture.end().finally(() => {
+      if (captures.get(session) === capture) captures.delete(session)
+      for (const [runId, run] of subagentRuns) {
+        if (run.parent === capture || run.child === capture) subagentRuns.delete(runId)
+      }
+      endings.delete(session)
+    })
+    endings.set(session, ending)
+    return ending
+  }
   ctx.on('session/created', adopt)
   ctx.on('session/event', (session, event) => { adopt(session).event(event) })
-  ctx.on('session/disposed', (session) => { void captures.get(session)?.end() })
+  ctx.on('session/disposed', (session) => { void endCapture(session) })
   ctx.on('subagent/start', (info: SubagentRunInfo) => {
     const child = ctx.sessions.get(info.id)
     if (child === undefined) return
@@ -270,18 +290,23 @@ export function apply(ctx: Context, config: Config = {}): void {
     const childCapture = adopt(child)
     subagentRuns.set(String(info.runId), { parent, child: childCapture })
     parent.linkChild(childCapture, 'subagent-start', Date.now(), {
-      run_id: String(info.runId), provider: info.provider, subagent_id: String(info.id), local: info.local,
+      tool_use_id: String(info.runId), provider: info.provider, subagent_id: String(info.id), local: info.local,
     })
   })
   ctx.on('subagent/end', (info: SubagentRunEndInfo) => {
     const run = subagentRuns.get(String(info.runId))
     subagentRuns.delete(String(info.runId))
     run?.parent.linkChild(run.child, 'subagent-end', Date.now(), {
-      run_id: String(info.runId), provider: info.provider, subagent_id: String(info.id), local: info.local, stop_reason: info.stopReason,
+      tool_use_id: String(info.runId),
+      provider: info.provider,
+      subagent_id: String(info.id),
+      local: info.local,
+      stop_reason: info.stopReason,
     })
   })
   for (const session of ctx.sessions.list()) adopt(session)
   ctx.effect(() => async () => {
-    await Promise.all([...captures.values()].map(capture => capture.end()))
+    await Promise.all([...captures.keys()].map(endCapture))
+    await Promise.all([...endings.values()])
   }, 'entire-bridge: drain session captures and hooks')
 }

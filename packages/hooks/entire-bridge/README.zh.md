@@ -8,7 +8,7 @@
 {"schemaVersion":1,"agent":"dsh"}
 ```
 
-该标记通常由可信的 `entire-agent-dsh` 适配器安装。桥接器在操作系统临时目录下为每个会话写一份规范化 JSONL sidecar，在 `.entire/tmp/dsh-<session-id>.json` 写入不含正文的引用，并用固定参数向量和 stdin 上的一份版本化 JSON 调用 `entire hooks dsh <hook>`。Sidecar 目录键是规范仓库路径的 SHA-256：先把分隔符转换为 `/`，Windows 盘符路径还要转成小写。匹配钩子只会在写入持久化后调用。钩子、进程或 sidecar 失败只产生诊断，不会让 Harness 工作失败。
+该标记通常由可信的 `entire-agent-dsh` 适配器安装。桥接器在操作系统临时目录下为每个会话写一份规范化 JSONL sidecar，在 `.entire/tmp/dsh-<session-id>.json` 写入不含正文的引用，并用固定参数向量和 stdin 上的一份版本化 JSON 调用 `entire hooks dsh <hook>`。Sidecar 目录键是规范仓库路径的 SHA-256：先把分隔符转换为 `/`，并在 Windows 上将整条路径转成小写。匹配钩子只会在写入持久化后调用。钩子、进程或 sidecar 失败只产生诊断，不会让 Harness 工作失败。
 
 ## 配置
 
@@ -23,7 +23,7 @@ const config: Config = {
 }
 ```
 
-`strict` 会省略工具输入/结果和类似推理的助手内容。默认转录保留真实用户提示、已提交的助手消息、工具与嵌套 Code Mode 生命周期/结果、策略与审批事实、正文计时、用量、压缩和子代理谱系；省略请求头、系统提示、schema、环境数据、不透明适配器状态、内部注入消息和原始助手 chunk。明显的凭证键值会被遮蔽，完整工具结果记录也受字节上限约束。`modified_files` 只是由已知且成功的 Harness 修改工具生成的保守提示；checkpoint 内容仍以 Entire 的 Git diff 为准。
+`strict` 会省略工具输入/结果和类似推理的助手内容。在所有模式下，助手消息副本都会省略嵌入的工具调用块；非严格模式下，独立的工具调用记录会携带经过解析和递归遮蔽的参数。除此之外，默认转录会保留真实用户提示、已提交的助手消息、工具与嵌套 Code Mode 生命周期/结果、策略与审批事实、正文计时、用量、压缩和子代理谱系；省略请求头、系统提示、schema、环境数据、不透明适配器状态、内部注入消息和原始助手 chunk。明显的凭证键值会被遮蔽，完整工具结果记录也受字节上限约束。`modified_files` 只是由已知且成功的 Harness 修改工具生成的保守提示；checkpoint 内容仍以 Entire 的 Git diff 为准。
 
 ## 安全与存储
 

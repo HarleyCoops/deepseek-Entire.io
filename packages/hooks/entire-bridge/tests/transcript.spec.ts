@@ -70,6 +70,34 @@ describe('transcript normalization', () => {
     expect(JSON.stringify([assistant, call, result])).not.toContain('secret')
   })
 
+  it('never duplicates raw tool-call arguments inside assistant content', () => {
+    const assistantEvent = event('assistant/message', 1, {
+      turn: 1,
+      step: 0,
+      message: {
+        source: { kind: 'model', provider: 'p', model: 'm' },
+        content: [
+          { type: 'reasoning', text: 'kept only by default' },
+          { type: 'tool-call', id: 'c', name: 'fetch', arguments: '{"apiKey":"assistant-secret"}' },
+          { type: 'text', text: 'visible answer' },
+        ],
+      },
+    })
+    const normal = normalizeSessionEvent(session, assistantEvent, { strict: false, toolResultMaxBytes: 1024 })
+    const strict = normalizeSessionEvent(session, assistantEvent, { strict: true, toolResultMaxBytes: 1024 })
+    const call = normalizeSessionEvent(session, event('tool/call', 2, {
+      turn: 1, step: 0, callId: 'c', name: 'fetch', arguments: '{"apiKey":"assistant-secret"}',
+    }), { strict: false, toolResultMaxBytes: 1024 })
+
+    expect(normal!.data!.content).toEqual([
+      { type: 'reasoning', text: 'kept only by default' },
+      { type: 'text', text: 'visible answer' },
+    ])
+    expect(strict!.data!.content).toEqual([{ type: 'text', text: 'visible answer' }])
+    expect(call!.data!.arguments).toEqual({ apiKey: '[REDACTED]' })
+    expect(JSON.stringify([normal, strict, call])).not.toContain('assistant-secret')
+  })
+
   it('caps the complete serialized tool-result record by UTF-8 bytes', () => {
     const record = normalizeSessionEvent(session, event('tool/result', 1, {
       turn: 1,

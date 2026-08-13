@@ -8,7 +8,7 @@ A dormant Cordis bridge from committed Harness session events to Entire's `dsh` 
 {"schemaVersion":1,"agent":"dsh"}
 ```
 
-The marker is normally installed by the trusted `entire-agent-dsh` adapter. The bridge writes one normalized JSONL sidecar per session beneath the OS temporary directory, writes a body-free reference at `.entire/tmp/dsh-<session-id>.json`, and invokes `entire hooks dsh <hook>` with a fixed argument vector and one versioned JSON payload on stdin. The sidecar directory key is SHA-256 of the canonical repository path after converting separators to `/` and, for Windows drive paths, lowercasing it. Writes are durable before the matching hook. Hook, process, and sidecar failures are diagnostic-only and do not fail Harness work.
+The marker is normally installed by the trusted `entire-agent-dsh` adapter. The bridge writes one normalized JSONL sidecar per session beneath the OS temporary directory, writes a body-free reference at `.entire/tmp/dsh-<session-id>.json`, and invokes `entire hooks dsh <hook>` with a fixed argument vector and one versioned JSON payload on stdin. The sidecar directory key is SHA-256 of the canonical repository path after converting separators to `/` and lowercasing the whole path on Windows. Writes are durable before the matching hook. Hook, process, and sidecar failures are diagnostic-only and do not fail Harness work.
 
 ## Config
 
@@ -23,7 +23,7 @@ const config: Config = {
 }
 ```
 
-`strict` omits tool inputs/results and reasoning-like assistant content. The default transcript retains true user prompts, committed assistant messages, tool and nested Code Mode lifecycle/results, policy and approval facts, body timing, usage, compaction, and subagent lineage. It omits request headers, system prompts, schemas, environment data, opaque adapter state, internal injected messages, and raw assistant chunks. Obvious credential-key values are masked and complete tool-result records are byte-capped. `modified_files` contains conservative hints from known successful Harness mutation tools; Entire's Git diff remains authoritative for checkpoint contents.
+`strict` omits tool inputs/results and reasoning-like assistant content. In every mode, assistant-message copies omit embedded tool-call blocks; the dedicated tool-call record carries parsed, recursively redacted arguments when not strict. The default transcript otherwise retains true user prompts, committed assistant messages, tool and nested Code Mode lifecycle/results, policy and approval facts, body timing, usage, compaction, and subagent lineage. It omits request headers, system prompts, schemas, environment data, opaque adapter state, internal injected messages, and raw assistant chunks. Obvious credential-key values are masked and complete tool-result records are byte-capped. `modified_files` contains conservative hints from known successful Harness mutation tools; Entire's Git diff remains authoritative for checkpoint contents.
 
 ## Security and storage
 

@@ -66,6 +66,7 @@ export class EntireSidecarStorage {
   readonly paths: EntireSidecarPaths
   private queue: Promise<void> = Promise.resolve()
   private initialized = false
+  private failed = false
 
   constructor(private readonly options: EntireSidecarStorageOptions) {
     this.paths = sidecarPaths(options.repositoryRoot, options.sessionId, options.tempRoot)
@@ -75,15 +76,22 @@ export class EntireSidecarStorage {
    * Queue one normalized JSON record in call order.
    * @param record - bounded record produced by the transcript normalizer.
    */
-  append(record: object): Promise<void> {
-    this.queue = this.queue.then(async () => {
-      await this.initialize()
-      await refuseSymlink(this.paths.sidecarPath)
-      await appendFile(this.paths.sidecarPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 })
-    }).catch((error: unknown) => {
-      this.options.warn(`entire-bridge: sidecar append failed: ${String(error)}`)
+  append(record: object): Promise<boolean> {
+    const result = this.queue.then(async () => {
+      if (this.failed) return false
+      try {
+        await this.initialize()
+        await refuseSymlink(this.paths.sidecarPath)
+        await appendFile(this.paths.sidecarPath, `${JSON.stringify(record)}\n`, { encoding: 'utf8', mode: 0o600 })
+        return true
+      } catch (error: unknown) {
+        this.failed = true
+        this.options.warn(`entire-bridge: sidecar append failed: ${String(error)}`)
+        return false
+      }
     })
-    return this.queue
+    this.queue = result.then(() => undefined)
+    return result
   }
 
   /**

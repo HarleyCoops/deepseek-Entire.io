@@ -35,6 +35,7 @@ describe('EntireHookRunner', () => {
     const runner = new EntireHookRunner(subprocess as never, {
       cwd: 'C:\\repo',
       graceMs: 1000,
+      timeoutMs: 30_000,
       outputMaxBytes: 4096,
       warn: warning => warnings.push(warning),
     })
@@ -69,13 +70,13 @@ describe('EntireHookRunner', () => {
     const warnings: string[] = []
     const unavailable = new EntireHookRunner({
       resolveExecutable: async () => { throw new Error('missing') },
-    } as never, { cwd: 'C:\\repo', graceMs: 1000, outputMaxBytes: 64, warn: warning => warnings.push(warning) })
+    } as never, { cwd: 'C:\\repo', graceMs: 1000, timeoutMs: 30_000, outputMaxBytes: 64, warn: warning => warnings.push(warning) })
     await expect(unavailable.run('session-start', { schema_version: 1, agent: 'dsh', hook_type: 'session-start', session_id: 's1', timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\repo\\ref' })).resolves.toBeUndefined()
 
     const failed = new EntireHookRunner({
       resolveExecutable: async () => 'entire',
       spawn: () => handle(Promise.resolve({ exitCode: 2, signal: null })),
-    } as never, { cwd: 'C:\\repo', graceMs: 1000, outputMaxBytes: 64, warn: warning => warnings.push(warning) })
+    } as never, { cwd: 'C:\\repo', graceMs: 1000, timeoutMs: 30_000, outputMaxBytes: 64, warn: warning => warnings.push(warning) })
     await expect(failed.run('session-end', { schema_version: 1, agent: 'dsh', hook_type: 'session-end', session_id: 's1', timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\repo\\ref' })).resolves.toBeUndefined()
     expect(warnings).toHaveLength(2)
   })
@@ -83,7 +84,7 @@ describe('EntireHookRunner', () => {
   it('serializes lifecycle hooks in call order', async () => {
     const started: string[] = []
     let releaseFirst!: () => void
-    const firstDone = new Promise<void>(resolve => { releaseFirst = resolve })
+    const firstDone = new Promise<void>((resolve) => { releaseFirst = resolve })
     const runner = new EntireHookRunner({
       resolveExecutable: async () => 'entire',
       spawn: (spec: SubprocessSpawnSpec) => {
@@ -92,7 +93,7 @@ describe('EntireHookRunner', () => {
         const done = hook === 'session-start' ? firstDone : Promise.resolve()
         return handle(done.then(() => ({ exitCode: 0, signal: null })))
       },
-    } as never, { cwd: 'C:\\repo', graceMs: 1000, outputMaxBytes: 64, warn: () => undefined })
+    } as never, { cwd: 'C:\\repo', graceMs: 1000, timeoutMs: 30_000, outputMaxBytes: 64, warn: () => undefined })
     const payload = (hook_type: 'session-start' | 'turn-start') => ({
       schema_version: 1 as const, agent: 'dsh' as const, hook_type, session_id: 's1',
       timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\temp\\s1.jsonl',
@@ -110,7 +111,7 @@ describe('EntireHookRunner', () => {
   it('cancels and drains an in-flight hook on disposal', async () => {
     let observedAbort = false
     let settle!: (outcome: { exitCode: number | null; signal: NodeJS.Signals | null }) => void
-    const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>(resolve => { settle = resolve })
+    const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => { settle = resolve })
     const runner = new EntireHookRunner({
       resolveExecutable: async () => 'entire',
       spawn: (spec: SubprocessSpawnSpec) => {
@@ -120,7 +121,7 @@ describe('EntireHookRunner', () => {
         }, { once: true })
         return handle(done)
       },
-    } as never, { cwd: 'C:\\repo', graceMs: 1000, outputMaxBytes: 64, warn: () => undefined })
+    } as never, { cwd: 'C:\\repo', graceMs: 1000, timeoutMs: 30_000, outputMaxBytes: 64, warn: () => undefined })
 
     const running = runner.run('turn-end', { schema_version: 1, agent: 'dsh', hook_type: 'turn-end', session_id: 's1', timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\repo\\ref' })
     await new Promise(resolve => setTimeout(resolve, 0))
@@ -128,5 +129,76 @@ describe('EntireHookRunner', () => {
 
     expect(observedAbort).toBe(true)
     await expect(running).resolves.toBeUndefined()
+  })
+
+  it('bounds a stuck session-end hook and waits for its process tree', async () => {
+    let releaseDone!: () => void
+    const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      releaseDone = () => { resolve({ exitCode: null, signal: 'SIGTERM' }) }
+    })
+    let terminateCalls = 0
+    let waitForExitCalls = 0
+    const runner = new EntireHookRunner({
+      resolveExecutable: async () => 'entire',
+      spawn: () => ({
+        ...handle(done),
+        terminate: () => { terminateCalls += 1 },
+        waitForExit: async () => { waitForExitCalls += 1; return true },
+      }),
+    } as never, { cwd: 'C:\\repo', graceMs: 5, timeoutMs: 5, outputMaxBytes: 64, warn: () => undefined })
+
+    const running = runner.run('session-end', {
+      schema_version: 1, agent: 'dsh', hook_type: 'session-end', session_id: 's1',
+      timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\repo\\ref',
+    })
+    const state = await Promise.race([
+      running.then(() => 'settled' as const),
+      new Promise<'pending'>((resolve) => { setTimeout(() => { resolve('pending') }, 50) }),
+    ])
+    releaseDone()
+    await running
+
+    expect(state).toBe('settled')
+    expect(terminateCalls).toBe(1)
+    expect(waitForExitCalls).toBeGreaterThan(0)
+  })
+
+  it('disposal aborts and drains a stuck existing hook through terminate and waitForExit', async () => {
+    let releaseDone!: () => void
+    let reportSpawned!: () => void
+    const spawned = new Promise<void>((resolve) => { reportSpawned = resolve })
+    const done = new Promise<{ exitCode: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      releaseDone = () => { resolve({ exitCode: null, signal: 'SIGTERM' }) }
+    })
+    let terminateCalls = 0
+    let waitForExitCalls = 0
+    const runner = new EntireHookRunner({
+      resolveExecutable: async () => 'entire',
+      spawn: () => {
+        reportSpawned()
+        return {
+          ...handle(done),
+          terminate: () => { terminateCalls += 1 },
+          waitForExit: async () => { waitForExitCalls += 1; return true },
+        }
+      },
+    } as never, { cwd: 'C:\\repo', graceMs: 5, timeoutMs: 60_000, outputMaxBytes: 64, warn: () => undefined })
+
+    const running = runner.run('turn-end', {
+      schema_version: 1, agent: 'dsh', hook_type: 'turn-end', session_id: 's1',
+      timestamp: '2026-08-13T16:00:00.000Z', session_ref: 'C:\\repo\\ref',
+    })
+    await spawned
+    const disposing = runner.dispose()
+    const state = await Promise.race([
+      disposing.then(() => 'settled' as const),
+      new Promise<'pending'>((resolve) => { setTimeout(() => { resolve('pending') }, 50) }),
+    ])
+    releaseDone()
+    await Promise.all([running, disposing])
+
+    expect(state).toBe('settled')
+    expect(terminateCalls).toBe(1)
+    expect(waitForExitCalls).toBeGreaterThan(0)
   })
 })

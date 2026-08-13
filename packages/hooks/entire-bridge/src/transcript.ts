@@ -49,15 +49,17 @@ export interface EntireNormalizedUsage {
   readonly api_call_count: number
 }
 
-function contentWithoutReasoning(content: readonly unknown[], strict: boolean): readonly unknown[] {
-  const selected = strict
-    ? content.filter(block => !(typeof block === 'object' && block !== null && (block as { type?: unknown }).type === 'reasoning'))
-    : content
+function selectedAssistantContent(content: readonly unknown[], strict: boolean): readonly unknown[] {
+  const selected = content.filter((block) => {
+    if (typeof block !== 'object' || block === null) return true
+    const type = (block as { type?: unknown }).type
+    return type !== 'tool-call' && (!strict || type !== 'reasoning')
+  })
   return structuredClone(selected)
 }
 
 function textFromContent(content: readonly unknown[], strict: boolean): string {
-  return contentWithoutReasoning(content, strict).flatMap((block) => {
+  return selectedAssistantContent(content, strict).flatMap((block) => {
     if (typeof block !== 'object' || block === null) return []
     const value = (block as { text?: unknown }).text
     return typeof value === 'string' ? [value] : []
@@ -198,7 +200,7 @@ export function normalizeSessionEvent(
         step: event.data.step,
         provider: event.data.message.source.provider,
         model: event.data.message.source.model,
-        content: contentWithoutReasoning(event.data.message.content, options.strict),
+        content: selectedAssistantContent(event.data.message.content, options.strict),
         ...event.data.usage === undefined ? {} : { usage: structuredClone(event.data.usage) },
       }
       adapter = {

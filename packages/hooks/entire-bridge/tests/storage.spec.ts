@@ -61,10 +61,11 @@ describe('EntireSidecarStorage', () => {
       warn: warning => warnings.push(warning),
     })
 
-    first.append({ type: 'first', body: 'secret transcript body' })
-    first.append({ type: 'second', index: 2 })
-    second.append({ type: 'child', index: 1 })
-    await Promise.all([first.drain(), second.drain()])
+    await Promise.all([
+      first.append({ type: 'first', body: 'secret transcript body' }),
+      first.append({ type: 'second', index: 2 }),
+      second.append({ type: 'child', index: 1 }),
+    ])
 
     expect((await readFile(first.paths.sidecarPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual([
       { type: 'first', body: 'secret transcript body' },
@@ -129,8 +130,10 @@ describe('EntireSidecarStorage', () => {
     const warnings: string[] = []
     const storage = new EntireSidecarStorage({ repositoryRoot, sessionId: 'linked', createdAt: 1, tempRoot, warn: value => warnings.push(value) })
 
-    await storage.append({ kind: 'must-not-follow' })
+    const first = await storage.append({ kind: 'must-not-follow' })
+    const second = await storage.append({ kind: 'must-not-retry' })
 
+    expect([first, second]).toEqual([false, false])
     expect(warnings).toHaveLength(1)
     expect(await readFile(outside, 'utf8')).toBe('unchanged\n')
   })

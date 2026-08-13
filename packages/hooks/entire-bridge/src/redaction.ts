@@ -1,7 +1,11 @@
 /** Credential-key redaction for transcript copies. @module @deepseek-ai/dsh-entire-bridge/redaction */
 
 const REDACTED = '[REDACTED]'
-const CREDENTIAL_KEY = /^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|passwd|secret|client[_-]?secret|credential|private[_-]?key|cookie)$/i
+const CREDENTIAL_KEY = new RegExp(
+  '^(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|password|passwd|secret|'
+  + 'client[_-]?secret|credential|private[_-]?key|cookie)$',
+  'i',
+)
 
 /**
  * Clone JSON-like data while masking values held under obvious credential keys.
