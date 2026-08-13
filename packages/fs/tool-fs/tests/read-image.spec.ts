@@ -13,6 +13,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
 import { CallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
@@ -123,13 +124,12 @@ async function setup(options: SetupOptions = {}) {
 
 /** A fake calling agent pinned to one routed provider/model. */
 function agentOn(model: string | undefined, provider = 'visual'): object {
+  const id = SessionId(`read-image-${++callCounter}`)
+  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: dir })
+  if (model !== undefined) session.append('request/header', { header: { config: { provider, model } } })
   return {
     options: {},
-    session: {
-      header: { cwd: dir },
-      requestHeader: () => (model === undefined ? undefined : { config: { provider, model } }),
-      append: () => undefined,
-    },
+    session,
   }
 }
 
@@ -215,9 +215,10 @@ describe('read_image happy path', () => {
   it('falls back to agent options when no request header exists yet', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
     const ctx = await setup()
+    const id = SessionId('read-image-options')
     const agent = {
       options: { provider: 'visual', model: 'vision-model' },
-      session: { header: { cwd: dir }, requestHeader: () => undefined },
+      session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: dir }),
     }
     const result = await readImage(ctx, { file_path: 'red.png' }, agent)
     expect(result.isError).toBe(false)

@@ -54,10 +54,14 @@ function textTool(name: string, text: string) {
   })
 }
 
-/** A minimal exec carrying a session header id (the spill owner). */
+/** A minimal exec carrying a spill owner and the required lifecycle append sink. */
 function exec(name: string, session = 's1'): ToolExecution {
-  // Only agent.session.header.id is read by the policy; a structural stub suffices.
-  const agent = { session: { header: { id: SessionId(session) } } }
+  const agent = {
+    session: {
+      header: { id: SessionId(session) },
+      append: (_type: string, _data: unknown) => {},
+    },
+  }
   return { callId: CallId(`call-${name}`), name, arguments: {}, agent, signal: testToolSignal } as unknown as ToolExecution
 }
 
@@ -194,11 +198,11 @@ describe('outer Code Mode failure capture', () => {
     await ctx.plugin(StubStore)
     await ctx.plugin(SpillPolicy, { maxInlineBytes: 200 })
     await ctx.plugin(WorkerThreadCodeRuntime, { maxOutputBytes: 500 })
-    const events: unknown[] = []
+    const events: { type: string; data: unknown }[] = []
     const agent = {
       session: {
         header: { id: SessionId('code-spill'), cwd: '/workspace' },
-        append: (_type: string, data: unknown) => { events.push(data) },
+        append: (type: string, data: unknown) => { events.push({ type, data }) },
       },
     }
 
@@ -220,7 +224,36 @@ describe('outer Code Mode failure capture', () => {
     expect(saved[0]?.content).toContain('code run failed (output-limit)')
     expect(saved[0]?.content).toContain('HEAD-')
     expect(textOf(result.content)).toContain('Full formatted result stored at: /spill/run_code.txt')
-    expect(events).toEqual([])
+    expect(events).toEqual([
+      {
+        type: 'tool/policy-result',
+        data: {
+          callId: 'code-output-limit',
+          rootCallId: 'code-output-limit',
+          name: 'run_code',
+          outcome: 'allowed',
+          source: 'pre-execute',
+        },
+      },
+      {
+        type: 'tool/body-start',
+        data: {
+          callId: 'code-output-limit',
+          rootCallId: 'code-output-limit',
+          name: 'run_code',
+        },
+      },
+      {
+        type: 'tool/body-end',
+        data: {
+          callId: 'code-output-limit',
+          rootCallId: 'code-output-limit',
+          name: 'run_code',
+          outcome: 'threw',
+          aborted: false,
+        },
+      },
+    ])
   })
 })
 

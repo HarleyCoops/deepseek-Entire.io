@@ -8,6 +8,7 @@ import Lsp, { LspProviderId, type LspProvider, type LspProviderQuery, type LspQu
 import * as ToolLsp from '@deepseek-ai/dsh-tool-lsp'
 import { DEFAULT_LSP_TOOL_TIMEOUT_MS, LSP_PROMPT_TEXT } from '@deepseek-ai/dsh-tool-lsp'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 
 /** A scripted provider recording queries; `respond` yields the result or throws. */
 function stubProvider(
@@ -48,12 +49,13 @@ const resolvedWorkspaceUri = pathToFileURL(resolvedWorkspaceRoot).href
 const workspaceAlias = resolve('/virtual/workspace-alias')
 /** `cwd: null` means "no agent" (tests LSP_WORKSPACE_REQUIRED); a string is the session cwd. */
 function call(ctx: Context, args: unknown, cwd: string | null = workspaceRoot) {
+  const id = SessionId(`lsp-tool-${seq + 1}`)
   return ctx.tools.execute({
     signal: testToolSignal,
     callId: `c-${++seq}` as never,
     name: 'lsp',
     arguments: args,
-    ...cwd !== null ? { agent: { session: { header: { cwd } } } as never } : {},
+    ...cwd !== null ? { agent: { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd }) } as never } : {},
   })
 }
 

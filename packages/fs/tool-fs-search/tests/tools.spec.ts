@@ -14,6 +14,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { join, sep } from 'node:path'
 import { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt, { renderPrompt } from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH, type ToolExecution, type ToolExecutionToken } from '@deepseek-ai/dsh-tools'
 import { SubprocessRuntime } from '@deepseek-ai/dsh-subprocess'
@@ -202,7 +203,10 @@ async function setup(options: SetupOptions = {}) {
 }
 
 /** A stand-in agent whose session header carries the given cwd (and a stable id). */
-const agent = (cwd?: string) => ({ session: { header: { id: 'session-1', ...cwd !== undefined ? { cwd } : {} } } })
+const agent = (cwd?: string) => {
+  const id = SessionId('session-1')
+  return { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd !== undefined ? { cwd } : {} }) }
+}
 
 let callCounter = 0
 function call(

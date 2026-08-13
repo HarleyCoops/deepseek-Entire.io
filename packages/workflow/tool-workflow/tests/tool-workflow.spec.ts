@@ -89,6 +89,10 @@ async function setup(config?: { toolName?: string; maxResultChars?: number }) {
 const SCRIPT = 'return 1'
 const META = { name: 'audit', description: 'd' }
 
+function workflowEvents(session: Session) {
+  return session.events.filter(event => String(event.type).startsWith('tool-workflow/'))
+}
+
 function execute(ctx: Context, args: unknown, extra?: {
   agent?: Agent
   signal?: AbortSignal
@@ -145,7 +149,7 @@ describe('dsh-tool-workflow', () => {
     engine.settleRun(runId, { value: 1, stopReason: 'completed', agentsStarted: 1 })
     expect((await pending).isError).toBe(false)
     expect(engine.disposed).toBe(1)
-    expect(session.events.map(event => [event.type, event.data])).toEqual([
+    expect(workflowEvents(session).map(event => [event.type, event.data])).toEqual([
       ['tool-workflow/run-start', { runId: 'run-1', name: 'audit' }],
       ['tool-workflow/agent-start', {
         runId: 'run-1', seq: 1, label: '', phase: '', childId: 'child-1',
@@ -165,10 +169,10 @@ describe('dsh-tool-workflow', () => {
       value: null, stopReason: 'completed', agentsStarted: 0,
     })
     await vi.waitFor(() => { expect(engine.disposed).toBe(1) })
-    expect(session.events.map(event => event.type)).toEqual(['tool-workflow/run-start'])
+    expect(workflowEvents(session).map(event => event.type)).toEqual(['tool-workflow/run-start'])
     barrier.resolve(undefined)
     expect((await pending).isError).toBe(false)
-    expect(session.events.map(event => event.type)).toEqual([
+    expect(workflowEvents(session).map(event => event.type)).toEqual([
       'tool-workflow/run-start', 'tool-workflow/run-end',
     ])
   })
@@ -198,7 +202,7 @@ describe('dsh-tool-workflow', () => {
       ])
   })
 
-  it('does not record nested transport executions', async () => {
+  it('records nested tool lifecycle without recording a nested workflow run', async () => {
     const { ctx, engine, parent, session } = await setup()
     const pending = execute(ctx, { script: SCRIPT, meta: META }, {
       agent: parent,
@@ -207,7 +211,19 @@ describe('dsh-tool-workflow', () => {
     await vi.waitFor(() => { expect(engine.requests).toHaveLength(1) })
     engine.settleRun(WorkflowRunId('run-1'), { value: null, stopReason: 'completed', agentsStarted: 0 })
     expect((await pending).isError).toBe(false)
-    expect(session.events).toEqual([])
+    expect(session.events.map(event => [event.type, event.data])).toEqual([
+      ['tool/policy-result', {
+        callId: 'call-1', rootCallId: 'call-1', name: 'workflow',
+        outcome: 'allowed', source: 'pre-execute',
+      }],
+      ['tool/body-start', {
+        callId: 'call-1', rootCallId: 'call-1', name: 'workflow',
+      }],
+      ['tool/body-end', {
+        callId: 'call-1', rootCallId: 'call-1', name: 'workflow',
+        outcome: 'returned', aborted: false,
+      }],
+    ])
   })
 
   it.each([
@@ -220,9 +236,10 @@ describe('dsh-tool-workflow', () => {
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
     const append = session.append.bind(session)
-    session.append = ((type: Parameters<Session['append']>[0], data: never) => {
+    session.append = ((...args: unknown[]) => {
+      const [type] = args
       if (type === failedType) throw new Error(`injected ${failedType} failure`)
-      return append(type, data)
+      return Reflect.apply(append, session, args)
     }) as Session['append']
 
     const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
@@ -239,7 +256,7 @@ describe('dsh-tool-workflow', () => {
     expect(engine.disposed).toBe(1)
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain(failedType)
-    const types = session.events.map(event => event.type)
+    const types = workflowEvents(session).map(event => event.type)
     const expectedPrefixes = {
       'tool-workflow/run-start': [],
       'tool-workflow/agent-start': ['tool-workflow/run-start'],
@@ -255,9 +272,13 @@ describe('dsh-tool-workflow', () => {
     const { ctx, engine, parent, session } = await setup()
     const warnings: string[] = []
     ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
-    session.append = () => {
-      throw { toString: () => { throw new Error('coercion trap') } }
-    }
+    const append = session.append.bind(session)
+    session.append = ((...args: unknown[]) => {
+      if (args[0] === 'tool-workflow/run-start') {
+        throw { toString: () => { throw new Error('coercion trap') } }
+      }
+      return Reflect.apply(append, session, args)
+    }) as Session['append']
     const pending = execute(ctx, { script: SCRIPT, meta: META }, { agent: parent })
     await vi.waitFor(() => { expect(engine.requests).toHaveLength(1) })
     engine.settleRun(WorkflowRunId('run-1'), {

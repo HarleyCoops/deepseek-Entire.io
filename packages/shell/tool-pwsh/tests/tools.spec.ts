@@ -22,7 +22,7 @@ import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
 import * as ToolTasks from '@deepseek-ai/dsh-tool-jobs'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { SessionId } from '@deepseek-ai/dsh-session'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import ApprovalService from '@deepseek-ai/dsh-user-approval'
 import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { ShellExecutor } from '@deepseek-ai/dsh-shell'
@@ -225,27 +225,26 @@ async function setupSandboxed(withApproval = false) {
  * `session.append`).
  */
 function sandboxAgent(
-  mode?: 'read-only' | 'workspace-write' | 'danger-full-access',
+  mode?: string,
   ctx?: Context,
   onAppend?: (type: string) => void,
 ): Agent {
-  const events: Array<{ type: string; data?: Record<string, unknown> }> = [{ type: 'turn/start' }]
-  if (mode !== undefined) events.push({ type: 'sandbox/mode', data: { mode } })
   const id = SessionId('sandbox-session')
+  const session = Session.create(id, undefined, { version: 0, id, createdAt: 0 })
+  session.append('turn/start', {})
+  if (mode !== undefined) session.append('sandbox/mode', { mode } as never)
+  if (onAppend !== undefined) {
+    const append = session.append.bind(session)
+    session.append = ((type, data, ...opts) => {
+      const event = append(type, data, ...opts as never)
+      onAppend(type)
+      return event
+    }) as typeof session.append
+  }
   return {
     id,
     ...ctx === undefined ? {} : { ctx: ctx.plugin(() => {}).ctx },
-    session: {
-      id,
-      header: { version: 0, id, createdAt: 0 },
-      events,
-      append: (type: string, data: Record<string, unknown>) => {
-        const event = { type, data }
-        events.push(event)
-        onAppend?.(type)
-        return event
-      },
-    },
+    session,
   } as unknown as Agent
 }
 
@@ -255,13 +254,13 @@ function sandboxAgent(
  * The fake session carries an empty event log (the sandbox-policy resolver
  * folds the log for mode overrides, mirroring a real session).
  */
-function registerFakeAgent(ctx: Context, sessionId: string): Agent {
+function registerFakeAgent(ctx: Context, sessionId: string, cwd?: string): Agent {
   const scopeFiber = ctx.plugin(() => {})
   const id = SessionId(sessionId)
   const agent = {
     id,
     ctx: scopeFiber.ctx,
-    session: { id, header: { version: 0, id, createdAt: 0 }, events: [] },
+    session: Session.create(id, undefined, { version: 0, id, createdAt: 0, ...cwd === undefined ? {} : { cwd } }),
   } as unknown as Agent
   ctx.agents.register(agent)
   return agent
@@ -354,8 +353,7 @@ describe('execution through the bash seam', () => {
     const dshHome = mkdtempSync(join(tmpdir(), 'dsh-tool-pwsh-home-'))
     const { ctx, bash } = await setup({}, dshHome)
     bash.handler = () => runResult('hi\n')
-    const agent = registerFakeAgent(ctx, 'session-1')
-    Object.assign(agent.session.header, { cwd: '/sessions/s1' })
+    const agent = registerFakeAgent(ctx, 'session-1', '/sessions/s1')
     const result = await call(ctx, 'pwsh', {
       command: 'Write-Output hi',
       description: 'say hi',
@@ -377,8 +375,7 @@ describe('execution through the bash seam', () => {
   it('resolves a relative workdir against the session cwd, absolute ones verbatim', async () => {
     const { ctx, bash } = await setup()
     bash.handler = () => runResult('ok\n')
-    const agent = registerFakeAgent(ctx, 'session-cwd')
-    Object.assign(agent.session.header, { cwd: '/sessions/s1' })
+    const agent = registerFakeAgent(ctx, 'session-cwd', '/sessions/s1')
     await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: 'sub/dir' }, agent)
     expect(bash.requests[0]?.workdir).toBe(resolvePath('/sessions/s1', 'sub/dir'))
     await call(ctx, 'pwsh', { command: 'pwd', description: 'cwd', workdir: resolvePath('/abs/path') }, agent)
@@ -502,8 +499,7 @@ describe('per-call sandbox policy resolution', () => {
   it('stamps the CALLING SESSION\'s resolved policy onto the request (session cwd, not the server launch dir)', async () => {
     const { ctx, bash } = await setupSandboxed()
     const sessionCwd = mkdtempSync(join(tmpdir(), 'dsh-tool-pwsh-policy-'))
-    const agent = registerFakeAgent(ctx, 'policy-session')
-    Object.assign(agent.session.header, { cwd: sessionCwd })
+    const agent = registerFakeAgent(ctx, 'policy-session', sessionCwd)
     const result = await call(ctx, 'pwsh', { command: 'Write-Output hi', description: 'say hi' }, agent)
     expect(result.isError).toBe(false)
     // The policy's workspace root is the session cwd canonicalized by the
@@ -592,11 +588,7 @@ describe('sandbox escalation through ctx.approval', () => {
     expect(text(result)).toContain('not strictly wider')
     expect(prompted).not.toHaveBeenCalled()
 
-    const malformed = sandboxAgent()
-    ;(malformed.session.events as unknown as Array<{ type: string; data: { mode: string } }>).push({
-      type: 'sandbox/mode',
-      data: { mode: 'unknown-mode' },
-    })
+    const malformed = sandboxAgent('unknown-mode')
     expect(text(await call(ctx, 'pwsh', escalate, malformed))).toContain('not strictly wider')
   })
 

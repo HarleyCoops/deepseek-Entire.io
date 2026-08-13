@@ -16,6 +16,7 @@ import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED } from '@deepseek-ai/dsh-tools'
 import LocalJobRegistry from '@deepseek-ai/dsh-jobs-local'
@@ -72,7 +73,10 @@ describe.skipIf(!hasPwsh)('pwsh tool over the real pwsh executor', () => {
     await rm(dir, { recursive: true, force: true })
   })
 
-  const agent = () => ({ session: { header: { id: 'session-int', cwd: dir } } })
+  const agent = () => {
+    const id = SessionId('session-int')
+    return { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: dir }) }
+  }
 
   it('runs a command and returns stdout with no marker on a clean exit', async () => {
     const result = await call('pwsh', { command: 'Write-Output hi', description: 'say hi' }, agent())

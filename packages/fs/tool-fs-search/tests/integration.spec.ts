@@ -16,6 +16,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
@@ -42,7 +43,10 @@ function text(result: { content: { type: string; text?: string }[] }): string {
 }
 
 /** The fixture workspace as a session cwd, so relative paths resolve inside `dir`. */
-const agent = () => ({ session: { header: { id: 'session-int', cwd: dir } } })
+const agent = () => {
+  const id = SessionId('session-int')
+  return { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: dir }) }
+}
 
 describe('search tools over the real subprocess service + the packaged rg', () => {
   beforeEach(async () => {
@@ -164,7 +168,8 @@ describe('search tools over the real subprocess service + the packaged rg', () =
       const sessionDir = await mkdtemp(join(tmpdir(), 'dsh-search-session-'))
       try {
         await writeFile(join(sessionDir, 'only-here.ts'), 'const sessionFile = true\n')
-        const agentObj = { session: { header: { id: 'session-int', cwd: sessionDir } } }
+        const id = SessionId('session-int')
+        const agentObj = { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: sessionDir }) }
         const globbed = await call('glob', { pattern: '*.ts' }, agentObj)
         expect(text(globbed)).toBe('only-here.ts')
         const grepped = await call('grep', { pattern: 'sessionFile' }, agentObj)
@@ -191,7 +196,8 @@ describe('search tools over the real subprocess service + the packaged rg', () =
 
     it('an unusable session cwd (spawn failure) is SEARCH_FAILED', async () => {
       const gone = join(dir, 'deleted-session-dir')
-      const result = await call('glob', { pattern: '*' }, { session: { header: { id: 'session-int', cwd: gone } } })
+      const id = SessionId('session-int')
+      const result = await call('glob', { pattern: '*' }, { session: Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: gone }) })
       expect(result.isError).toBe(true)
       expect(result.error).toMatchObject({ info: { name: 'SearchError', code: 'SEARCH_FAILED' } })
       expect(text(result)).toContain('could not start')

@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { CallId } from '@deepseek-ai/dsh-llm'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { TOOL_ABORTED_BEFORE_DISPATCH } from '@deepseek-ai/dsh-tools'
 import { LocalFileSystem } from '@deepseek-ai/dsh-fs-local'
@@ -23,7 +24,7 @@ let dir: string
 let ctx: Context
 let fiber: Awaited<ReturnType<Context['plugin']>>
 // No header cwd: sessionCwd returns undefined and the provider's configured test dir applies.
-const session = { header: {} }
+const session = Session.create(SessionId('fs-integration'))
 
 let callCounter = 0
 function call(name: string, args: unknown) {
@@ -390,7 +391,7 @@ describe('per-session cwd', () => {
   })
   afterEach(async () => { await rm(sessionDir, { recursive: true, force: true }) })
 
-  const callIn = (sessionObj: object, name: string, args: unknown) =>
+  const callIn = (sessionObj: Session, name: string, args: unknown) =>
     ctx.tools.execute({
       signal: testToolSignal,
       callId: CallId(`call-${++callCounter}`),
@@ -400,7 +401,8 @@ describe('per-session cwd', () => {
     })
 
   it('writes a relative path into the SESSION cwd, not config.cwd', async () => {
-    const result = await callIn({ header: { cwd: sessionDir } }, 'write', { file_path: 'note.txt', content: 'hi' })
+    const id = SessionId('fs-session-cwd-write')
+    const result = await callIn(Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: sessionDir }), 'write', { file_path: 'note.txt', content: 'hi' })
     expect(result.isError).toBe(false)
     // Verify the WORLD: the file is in the session dir, and NOT in config.cwd.
     expect(await readFile(join(sessionDir, 'note.txt'), 'utf8')).toBe('hi')
@@ -410,7 +412,8 @@ describe('per-session cwd', () => {
   it('read + edit both resolve against the session cwd (end-to-end)', async () => {
     // ONE session object across both calls — observed-state keys by owner
     // identity, so read must record under the same owner the edit reads.
-    const session = { header: { cwd: sessionDir } }
+    const id = SessionId('fs-session-cwd-read-edit')
+    const session = Session.create(id, undefined, { version: 0, id, createdAt: 0, cwd: sessionDir })
     await writeFile(join(sessionDir, 'code.txt'), 'alpha')
     expect((await callIn(session, 'read', { file_path: 'code.txt' })).isError).toBe(false)
     const edited = await callIn(session, 'edit', { file_path: 'code.txt', old_string: 'alpha', new_string: 'beta' })
@@ -434,7 +437,7 @@ describe('signal, concurrency, and the fs/observed contract', () => {
     fiber = await ctx.plugin(ToolFs)
   })
 
-  const session = { header: {} }
+  const session = Session.create(SessionId('fs-signal-contract'))
   const callSig = (signal: AbortSignal, name: string, args: unknown) =>
     ctx.tools.execute({ callId: CallId(`c-${++callCounter}`), name, arguments: args, agent: { session } as never, signal })
   const callOwned = (name: string, args: unknown) =>
