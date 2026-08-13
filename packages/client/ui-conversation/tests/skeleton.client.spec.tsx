@@ -3,7 +3,7 @@
 // hero (blank session) and active phases — same textarea DOM node, machine-
 // owned draft, and the hero workspace picker (switching = retargetWorkspace).
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { act, cleanup, fireEvent, render } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import {
   createSnapshotStore, EMPTY_CHAT_SNAPSHOT, EMPTY_CONVERSATION_VIEWS,
@@ -21,7 +21,7 @@ import { SessionInputShell } from '../src/client/input/facade.ts'
 import { en, zh } from '../src/client/locales.ts'
 import { ConversationRoot } from '../src/client/skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from '../src/client/skeleton/ConversationSession.tsx'
-import { HeroShell } from '../src/client/skeleton/EmptyHero.tsx'
+import { HeroShell, WorkspaceChip } from '../src/client/skeleton/EmptyHero.tsx'
 import { InputBar } from '../src/client/skeleton/InputBar.tsx'
 import type { InputBarProps } from '../src/client/skeleton/InputBar.tsx'
 import type {
@@ -258,6 +258,12 @@ function mount(
 }
 
 describe('Hero chrome', () => {
+  it('names the empty action as folder selection', () => {
+    const english = makeTranslate(en, commonEn)
+    render(<WorkspaceChip t={english} />)
+    expect(screen.getByRole('button', { name: 'Choose workspace folder' })).toBeTruthy()
+  })
+
   it('renders the English preview badge through the hero locale seat', () => {
     const view = render(<HeroShell t={makeTranslate(en, commonEn)} />)
     expect(view.getByText('Into the Unknown')).toBeTruthy()
@@ -374,7 +380,7 @@ describe('ConversationRoot resident composer', () => {
     expect(b.chat.store.getSnapshot().draft).toBe('draft in hero')
     // Picker: open through the chip; a pick switches to the other
     // workspace's blank session (draft carry is apply-layer wiring).
-    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区文件夹' }))
     const owner = b.pickerOwner() as { open: boolean; onPick(id: WorkspaceId): void }
     expect(owner.open).toBe(true)
     act(() => { owner.onPick(wid('second')) })
@@ -470,7 +476,7 @@ describe('ConversationRoot resident composer', () => {
       ],
       selectWorkspace,
     )
-    fireEvent.click(b.view.getByRole('button', { name: '选择工作区' }))
+    fireEvent.click(b.view.getByRole('button', { name: '选择工作区文件夹' }))
     const owner = b.pickerOwner() as { onPick(id: WorkspaceId): void }
     await act(async () => { owner.onPick(wid('second')); await Promise.resolve() })
     expect(selectWorkspace).toHaveBeenCalledWith(wid('second'))
@@ -480,7 +486,7 @@ describe('ConversationRoot resident composer', () => {
 
   it('blank session keeps the interactive picker chip (workspace switchable until the first message)', () => {
     const b = mount(conversationSnapshot({ composerPhase: 'blank', blank: true }))
-    const chip = b.view.getByRole('button', { name: '选择工作区' })
+    const chip = b.view.getByRole('button', { name: '选择工作区文件夹' })
     expect((chip as HTMLButtonElement).disabled).toBe(false)
     expect(b.slotCalls).toContain('conversation.hero.workspace')
     // The agent-preset chip sits in the same row, for the same reason: both

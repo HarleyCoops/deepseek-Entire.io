@@ -48,7 +48,7 @@ describe('web e2e: workspace management (create / rename / flat view / hover aff
    * the click lands in the dialog with no menu in between.
    */
   async function browseTo(path: string): Promise<Locator> {
-    await page.getByRole('button', { name: 'Add workspace' }).click()
+    await page.getByRole('button', { name: 'Choose workspace folder' }).click()
     const dialog = page.getByRole('dialog', { name: 'Select Workspace Directory' })
     await dialog.waitFor({ timeout: 10_000 })
     await dialog.getByRole('button', { name: 'Edit path' }).click()

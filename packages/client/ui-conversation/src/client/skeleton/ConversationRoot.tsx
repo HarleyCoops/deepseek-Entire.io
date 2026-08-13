@@ -83,7 +83,7 @@ export function ConversationRoot({
 
   // The chip is a selector; label resolution walks the flow top-down:
   //   1. a just-picked workspace (pending) → its title;
-  //   2. cold start, no session yet → placeholder ("Choose workspace");
+  //   2. cold start, no session yet → placeholder ("Choose workspace folder");
   //   3. the blank session's workspace is in the list → its title;
   //   4. list still loading → cwd folder name bridges so the title does not
   //      flash on refresh (empty cwd → placeholder);
@@ -123,7 +123,7 @@ export function ConversationRoot({
     </div>
   )
 
-  // The placeholder chip ("Choose workspace") and the Workspace-trigger input travel
+  // The placeholder chip ("Choose workspace folder") and the Workspace-trigger input travel
   // together: no workspace picked yet (cold start, no session at all), or a
   // blank session whose workspace vanished (deleted from the sidebar). The
   // bar is ONE session-maybe slot rendered unconditionally — inert is a prop,
