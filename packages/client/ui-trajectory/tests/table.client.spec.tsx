@@ -118,6 +118,51 @@ describe('TrajectoryTable', () => {
     expect(screen.getByText('1,500 ms', { selector: 'dd' })).toBeTruthy()
   })
 
+  it('shows the complete truthful tool timing chain', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{ turn: 1, groups: [{
+      title: 'Step 1',
+      cells: [{
+        index: 1, kind: 'tool', text: 'write', timeSeconds: 0.02,
+        toolTiming: {
+          total: { startedAt: 1_000, completedAt: 1_020, durationMs: 20 },
+          policy: { startedAt: 1_000, completedAt: 1_004, durationMs: 4, outcome: 'allowed', source: 'approval' },
+          approval: { startedAt: 1_001, completedAt: 1_003, durationMs: 2, outcome: 'allowed-once' },
+          body: { startedAt: 1_004, completedAt: 1_004, durationMs: 0, outcome: 'threw', aborted: true },
+        },
+      }],
+    }] }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
+    expect(screen.getByText('Total')).toBeTruthy()
+    expect(screen.getByText('Policy')).toBeTruthy()
+    expect(screen.getByText('allowed · approval')).toBeTruthy()
+    expect(screen.getByText('Approval')).toBeTruthy()
+    expect(screen.getByText('Body')).toBeTruthy()
+    expect(screen.getByText('threw · aborted: true')).toBeTruthy()
+    expect(screen.getByText('0 ms')).toBeTruthy()
+  })
+
+  it('keeps incomplete Total, Approval, and Body spans visibly unknown', () => {
+    const turns: readonly TrajectoryTurnModel[] = [{ turn: 1, groups: [{
+      title: 'Step 1',
+      cells: [{
+        index: 1, kind: 'tool', text: 'write', timeSeconds: null,
+        toolTiming: {
+          total: { startedAt: 1_000, completedAt: null, durationMs: null },
+          policy: { startedAt: 1_000, completedAt: 1_004, durationMs: 4, outcome: 'allowed', source: 'approval' },
+          approval: { startedAt: 1_001, completedAt: null, durationMs: null, outcome: null },
+          body: { startedAt: 1_004, completedAt: null, durationMs: null, outcome: null, aborted: null },
+        },
+      }],
+    }] }]
+    render(<TrajectoryTable turns={turns} {...FOLD_PROPS} />)
+    fireEvent.click(screen.getByRole('row', { name: /TOOL/ }))
+
+    expect(screen.getAllByText('—')).toHaveLength(3)
+    expect(screen.getAllByText('Unknown')).toHaveLength(2)
+    expect(screen.getByText('allowed · approval')).toBeTruthy()
+  })
+
   it('breaks output tokens into labeled reasoning and content rows', () => {
     render(<TrajectoryTable turns={TURNS} {...FOLD_PROPS} />)
     fireEvent.click(screen.getByRole('row', { name: /ASSISTANT/ }))

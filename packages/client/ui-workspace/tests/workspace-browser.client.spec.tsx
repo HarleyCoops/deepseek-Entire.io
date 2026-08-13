@@ -7,11 +7,12 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import type { WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
+import type { DirectoryFlowOwnerProps, WorkspaceBrowserProps } from '../src/client/contract/slots.ts'
 import { createWorkspaceViewStore, FLAT_SESSION_ORDER_KEY } from '../src/client/stores.ts'
 import { UNGROUPED_KEY } from '../src/client/tree.ts'
 import { WorkspaceBrowser } from '../src/client/WorkspaceBrowser.tsx'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 beforeEach(() => { localStorage.clear(); createWorkspaceViewStore().create().actions.setOrderBy('manual') })
@@ -19,6 +20,7 @@ beforeEach(() => { localStorage.clear(); createWorkspaceViewStore().create().act
 // The seat's key domain is workspace ∪ common; the stub mirrors the real
 // lookup chain (namespace, then common vocabulary, then the key).
 const t: WorkspaceBrowserProps['t'] = makeTranslate(zh, commonZh)
+const enT: WorkspaceBrowserProps['t'] = makeTranslate(en, commonEn)
 
 const sid = (id: string) => id as SessionId
 const wid = (id: string) => id as WorkspaceId
@@ -60,6 +62,7 @@ function dragData(): Pick<DataTransfer, 'effectAllowed' | 'dropEffect' | 'setDat
 
 function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
   const store = createWorkspaceViewStore().create()
+  const flow: { owner: DirectoryFlowOwnerProps | undefined } = { owner: undefined }
   const props: WorkspaceBrowserProps = {
     wide: true,
     expandSidebar: vi.fn(),
@@ -80,12 +83,15 @@ function mount(overrides: Partial<WorkspaceBrowserProps> = {}) {
     insertSessionBefore: vi.fn(async () => {}),
     createWorkspace: vi.fn(async () => workspace('created', [])),
     useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => true, subscribe: () => () => {} }),
-    renderSlot: ((_name: string, owner: { open: boolean }) => (owner.open ? <div data-testid="directory-flow" /> : null)) as never,
+    renderSlot: ((_name: string, owner: DirectoryFlowOwnerProps) => {
+      flow.owner = owner
+      return owner.open ? <div data-testid="directory-flow" /> : null
+    }) as never,
     t,
     ...overrides,
   }
   const view = render(<WorkspaceBrowser {...props} />)
-  return { view, props, store }
+  return { view, props, store, flow }
 }
 
 /** Re-render with (possibly) changed props — WorkspaceBrowser has no side channel. */
@@ -705,7 +711,7 @@ describe('WorkspaceBrowser', () => {
   it('rail add-workspace raises the directory flow in place, with no menu and no expansion', () => {
     const expandSidebar = vi.fn()
     mount({ wide: false, expandSidebar, useWorkspaces: hook(workspaceState([workspace('alpha', [])])) })
-    fireEvent.click(screen.getByRole('button', { name: '添加工作区' }))
+    fireEvent.click(screen.getByRole('button', { name: '选择工作区文件夹' }))
     expect(expandSidebar).not.toHaveBeenCalled()
     // Adding is the header's only action, so the gesture IS that action: no
     // one-row popover, and existing workspaces stay in the tree below.
@@ -714,13 +720,42 @@ describe('WorkspaceBrowser', () => {
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
   })
 
+  it('keeps rail directory-flow feedback outside the clipped section header', () => {
+    const b = mount({
+      wide: false,
+      useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
+      t: enT,
+    })
+    const add = screen.getByRole('button', { name: 'Choose workspace folder' })
+    const header = add.closest('[class*="sectionHeader"]')!
+
+    fireEvent.click(add)
+    const opening = screen.getByRole('status')
+    const helper = screen.getByText('Folders only; files are not attached here.')
+    expect(header.contains(opening)).toBe(false)
+    expect(header.contains(helper)).toBe(false)
+    expect(b.view.container.contains(opening)).toBe(false)
+    expect(b.view.container.contains(helper)).toBe(false)
+
+    act(() => { b.flow.owner!.onCancel() })
+    const cancelled = screen.getByRole('status')
+    expect(cancelled.textContent).toContain('No folder selected')
+    expect(header.contains(cancelled)).toBe(false)
+    expect(b.view.container.contains(cancelled)).toBe(false)
+
+    fireEvent.click(add)
+    act(() => { b.flow.owner!.onError('no chooser installed') })
+    const error = screen.getByRole('dialog', { name: 'Couldn’t open folder' })
+    expect(header.contains(error)).toBe(false)
+  })
+
   it('hides the add button when no directory-flow occupant is composed', () => {
     mount({
       useWorkspaces: hook(workspaceState([workspace('alpha', [])])),
       useDirectoryFlow: bindSnapshotSelector({ getSnapshot: () => false, subscribe: () => () => {} }),
     })
     // Nothing to add with, so the header offers no dead button.
-    expect(screen.queryByRole('button', { name: '添加工作区' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '选择工作区文件夹' })).toBeNull()
     expect(screen.getByText('alpha')).toBeTruthy()
   })
 

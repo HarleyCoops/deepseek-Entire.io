@@ -34,6 +34,12 @@ pnpm run build
 pnpm dsh web
 ```
 
+## 检查 agent 追踪
+
+Harness 将每个会话记录为规范的、仅追加的 `SessionEvent` 日志。该日志包含已提交的提示词与 assistant 消息、用量、压缩和谱系，也包含根级与嵌套工具调用/结果、策略结果、审批决定以及工具主体的开始/结束结果。Web UI 可以直接显示这条链路；其所有权见[架构指南](docs/architecture.md#trace-and-checkpoint-flow)。
+
+[Entire 检查点](docs/user/guide/entire.md)是这些已提交事实的可选导出。只有受信任的 `entire-agent-dsh` 适配器安装克隆本地标记后，集成才会激活；它不会增加模型上下文，也不消耗模型 token。
+
 ## 社区与支持
 
 - 欢迎通过 [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions) 提交反馈或 bug 报告。

@@ -5,6 +5,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { ConversationNodeAssembler } from '@deepseek-ai/dsh-client-runtime/client'
 import { registerTrajectoryAssistantDefinition } from '../src/client/trajectory-assistant-definition.ts'
+import { registerTrajectoryApprovalDefinition } from '../src/client/trajectory-approval-definition.ts'
 import { registerTrajectoryCompactionDefinitions } from '../src/client/trajectory-compaction-definition.ts'
 import type { TrajectorySnapshot } from '../src/client/trajectory-contract.ts'
 import { registerTrajectoryMessageDefinitions } from '../src/client/trajectory-message-definitions.ts'
@@ -26,6 +27,7 @@ registerTrajectoryMessageDefinitions(registrationContext)
 registerTrajectoryRequestHeaderDefinition(registrationContext)
 registerTrajectoryAssistantDefinition(registrationContext)
 registerTrajectoryToolDefinition(registrationContext)
+registerTrajectoryApprovalDefinition(registrationContext)
 registerTrajectoryCompactionDefinitions(registrationContext)
 
 class TestEventDefinitions {
@@ -184,6 +186,159 @@ describe('Trajectory conversation Definitions', () => {
       callId: 'child',
       call: { name: 'read' },
     }])
+  })
+
+  it('folds interleaved root and nested lifecycle timing from event envelopes', () => {
+    const base = 1_700_000_000_000
+    const current = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool/call', {
+        turn: 1, step: 1, callId: 'root-a', name: 'code', arguments: '{}',
+      }),
+      at(4, 'tool/call', {
+        turn: 1, step: 1, callId: 'root-b', name: 'parallel', arguments: '{}',
+      }),
+      at(5, 'tool/policy-result', {
+        callId: 'root-b', rootCallId: 'root-b', name: 'parallel', outcome: 'allowed', source: 'pre-execute',
+      }),
+      at(6, 'tool/policy-result', {
+        callId: 'root-a', rootCallId: 'root-a', name: 'code', outcome: 'allowed', source: 'approval',
+      }),
+      at(7, 'tool/code-dispatch-start', {
+        rootCallId: 'root-a', parentCallId: 'root-a', subCallId: 'child', name: 'read', arguments: {},
+      }),
+      at(8, 'tool/policy-result', {
+        callId: 'child', rootCallId: 'root-a', name: 'read', outcome: 'allowed', source: 'pre-execute',
+      }),
+      at(9, 'tool/body-start', {
+        callId: 'root-a', rootCallId: 'root-a', name: 'code',
+      }),
+      at(10, 'tool/body-start', {
+        callId: 'child', rootCallId: 'root-a', name: 'read',
+      }),
+      at(11, 'tool/body-end', {
+        callId: 'child', rootCallId: 'root-a', name: 'read', outcome: 'returned', aborted: false,
+        durationMs: 999_999,
+      }),
+      at(12, 'tool/code-dispatch', {
+        rootCallId: 'root-a', parentCallId: 'root-a', subCallId: 'child', name: 'read', arguments: {},
+        content: [{ type: 'text', text: 'contents' }],
+      }),
+      at(13, 'tool/body-end', {
+        callId: 'root-a', rootCallId: 'root-a', name: 'code', outcome: 'threw', aborted: true,
+        durationMs: 999_999,
+      }),
+      at(14, 'tool/result', {
+        turn: 1,
+        step: 1,
+        message: {
+          id: 'result-a',
+          role: 'tool',
+          content: [{ type: 'tool-result', content: [{ type: 'text', text: 'failed' }], isError: true }],
+          source: { kind: 'tool', callId: 'root-a' },
+        },
+      }),
+      at(15, 'tool/body-start', {
+        callId: 'root-b', rootCallId: 'root-b', name: 'parallel',
+      }),
+      at(16, 'tool/body-end', {
+        callId: 'root-b', rootCallId: 'root-b', name: 'parallel', outcome: 'returned', aborted: false,
+      }, { time: base + 15 }),
+      at(17, 'step/end', { turn: 1, step: 1 }),
+    ]))
+
+    expect(current.toolTimings.get('root-a')).toMatchObject({
+      total: { startedAt: base + 3, completedAt: base + 14, durationMs: 11 },
+      policy: {
+        startedAt: base + 3,
+        completedAt: base + 6,
+        durationMs: 3,
+        outcome: 'allowed',
+        source: 'approval',
+      },
+      body: {
+        startedAt: base + 9,
+        completedAt: base + 13,
+        durationMs: 4,
+        outcome: 'threw',
+        aborted: true,
+      },
+    })
+    expect(current.toolTimings.get('child')).toMatchObject({
+      total: { startedAt: base + 7, completedAt: base + 12, durationMs: 5 },
+      policy: { startedAt: base + 7, completedAt: base + 8, durationMs: 1 },
+      body: { startedAt: base + 10, completedAt: base + 11, durationMs: 1 },
+    })
+    expect(current.toolTimings.get('root-b')).toMatchObject({
+      total: { startedAt: base + 4, completedAt: null, durationMs: null },
+      body: { startedAt: base + 15, completedAt: base + 15, durationMs: 0 },
+    })
+  })
+
+  it('pairs interleaved approval decisions by approval id and then exact call id', () => {
+    const base = 1_700_000_000_000
+    const current = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool/call', {
+        turn: 1, step: 1, callId: 'root', name: 'code', arguments: '{}',
+      }),
+      at(4, 'approval/asked', {
+        id: 'approval-root', toolName: 'code', callId: 'root',
+      }),
+      at(5, 'tool/code-dispatch-start', {
+        rootCallId: 'root', parentCallId: 'root', subCallId: 'child', name: 'write', arguments: {},
+      }),
+      at(6, 'approval/asked', {
+        id: 'approval-child', toolName: 'write', callId: 'child',
+      }),
+      at(7, 'approval/decided', {
+        id: 'approval-child', outcome: 'rejected',
+      }),
+      at(8, 'approval/decided', {
+        id: 'approval-root', outcome: 'allowed-once',
+      }),
+    ]))
+
+    expect(current.toolTimings.get('root')?.approval).toEqual({
+      startedAt: base + 4,
+      completedAt: base + 8,
+      durationMs: 4,
+      outcome: 'allowed-once',
+    })
+    expect(current.toolTimings.get('child')?.approval).toEqual({
+      startedAt: base + 6,
+      completedAt: base + 7,
+      durationMs: 1,
+      outcome: 'rejected',
+    })
+  })
+
+  it('keeps incomplete approvals unknown and ignores decided-only truncated records', () => {
+    const pending = snapshot(assembler([
+      at(1, 'turn/start', { turn: 1 }),
+      at(2, 'step/start', { turn: 1, step: 1 }),
+      at(3, 'tool/call', {
+        turn: 1, step: 1, callId: 'root', name: 'write', arguments: '{}',
+      }),
+      at(4, 'approval/asked', {
+        id: 'approval-pending', toolName: 'write', callId: 'root',
+      }),
+    ]))
+    expect(pending.toolTimings.get('root')?.approval).toEqual({
+      startedAt: 1_700_000_000_004,
+      completedAt: null,
+      durationMs: null,
+      outcome: null,
+    })
+
+    expect(() => assembler([
+      at(1, 'approval/decided', { id: 'approval-truncated', outcome: 'cancelled' }),
+    ])).not.toThrow()
+    expect(snapshot(assembler([
+      at(1, 'approval/decided', { id: 'approval-truncated', outcome: 'cancelled' }),
+    ])).toolTimings.size).toBe(0)
   })
 
   it('assembles compaction lifecycle, checkpoint replacement, and orphan interruption', () => {

@@ -10,8 +10,62 @@
 import { randomUUID } from 'node:crypto'
 import { resolve } from 'node:path'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { ToolLifecycleIdentity } from '@deepseek-ai/dsh-tools'
+import type { ApprovalOutcome } from '@deepseek-ai/dsh-user-approval'
 import { HarnessClient, isRecord, SdkProtocolError } from './client.ts'
 import type { ContentBlock, DeepSeekHarnessOptions, HarnessClientOptions, HarnessNotification, RunResult } from './types.ts'
+
+/** Durable event names that describe one root or nested tool-call lifecycle. */
+export type ToolTraceEventType =
+  | 'tool/call'
+  | 'tool/policy-result'
+  | 'approval/asked'
+  | 'approval/decided'
+  | 'tool/body-start'
+  | 'tool/body-end'
+  | 'tool/result'
+  | 'tool/code-dispatch-start'
+  | 'tool/code-dispatch'
+
+/** Keep the event-map augmentation providers in the published declaration. */
+type WithToolTraceAugmentations<
+  Event,
+  _Tool extends ToolLifecycleIdentity = ToolLifecycleIdentity,
+  _Approval extends ApprovalOutcome = ApprovalOutcome,
+> = Event
+
+/** One durable tool-call, policy, approval, body, or nested-dispatch event. */
+export type ToolTraceEvent = WithToolTraceAugmentations<SessionEvent<ToolTraceEventType>>
+
+const TOOL_TRACE_EVENT_TYPES: ReadonlySet<string> = new Set<ToolTraceEventType>([
+  'tool/call',
+  'tool/policy-result',
+  'approval/asked',
+  'approval/decided',
+  'tool/body-start',
+  'tool/body-end',
+  'tool/result',
+  'tool/code-dispatch-start',
+  'tool/code-dispatch',
+])
+
+/**
+ * Test whether a session event belongs to the durable tool trace vocabulary.
+ * @param event - one typed session event.
+ * @returns `true` for root/nested tool, policy, approval, or body records.
+ */
+export function isToolTraceEvent(event: SessionEvent): event is ToolTraceEvent {
+  return TOOL_TRACE_EVENT_TYPES.has(event.type)
+}
+
+/**
+ * Select tool trace events without reordering or cloning them.
+ * @param events - session events in durable/wire order.
+ * @returns the matching events with their original object identities.
+ */
+export function toolTraceEvents(events: readonly SessionEvent[]): ToolTraceEvent[] {
+  return events.filter(isToolTraceEvent)
+}
 
 /**
  * Reusable SDK for running DeepSeek Harness agent turns in a runtime

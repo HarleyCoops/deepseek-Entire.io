@@ -19,10 +19,10 @@
         - 'button "Request #1"'
         - text: ASSISTANT
       - 'cell "The user wants me to follow a specific navigation scenario. Let me: Run bash to print \"NAVIGATION_OK\" Read nav-a.md and nav-b.md in two read calls in ONE message Reply with \"FIRST_DONE\" Let me start with the bash command and the reads."'
-    - 'row "TOOL, bash {\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"}" [selected]':
+    - 'row "TOOL, bash {\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"}"':
       - cell "TOOL"
       - 'cell "bash{\"command\": \"echo NAVIGATION_OK\", \"description\": \"Print NAVIGATION_OK\"} → NAVIGATION_OK"'
-    - 'row "TOOL, read {\"file_path\": \"nav-a.md\"}"':
+    - 'row "TOOL, read {\"file_path\": \"nav-a.md\"}" [selected]':
       - cell "TOOL"
       - 'cell "read{\"file_path\": \"nav-a.md\"} → <path>{{cwd}}/nav-a.md</path> <type>file</type> <content> 1: # alpha nav (End of file - total 1 lines) </content>"'
     - 'row "TOOL, read {\"file_path\": \"nav-b.md\"}"':
@@ -48,7 +48,17 @@
   - tablist "Event details":
     - tab "Summary"
     - tab "Payload"
-    - tab "Result" [selected]
+    - tab "Result"
     - tab "Schema"
-    - tab "Timing"
-  - tabpanel "Result": NAVIGATION_OK
+    - tab "Timing" [selected]
+  - tabpanel "Timing":
+    - term: Total
+    - definition: 8 ms
+    - term: Policy
+    - definition: 2 ms
+    - term: Policy outcome
+    - definition: allowed · pre-execute
+    - term: Body
+    - definition: 4 ms
+    - term: Body outcome
+    - definition: "returned · aborted: false"

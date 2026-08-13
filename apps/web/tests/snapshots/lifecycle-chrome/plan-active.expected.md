@@ -21,7 +21,7 @@
   - img
   - text: Settings
 - text: Into the Unknown Preview
-- button "Choose workspace":
+- button "Choose workspace folder":
   - img
   - text: workspace
   - img

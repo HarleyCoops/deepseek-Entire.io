@@ -25,6 +25,17 @@ console.log(result.finalResponse)
 
 `run(input, { sessionId?, onNotification? })` 拥有一个活动区间：它将提示词排入队列，等待其 `MessageId` 出现在持久的 `agent/inbox/spliced` 回执中，然后持续收集到整个 agent 下一次进入 `idle`。它返回 `RunResult { sessionId, finalResponse, events, notifications }`。`finalResponse` 是该区间内根会话最后提交的助手文本，并非因果上归属于该提示词的响应；steering（中途引导）、注入的上下文和其他排队工作都可能在 idle 前参与其中。`events` 包含根会话事件，`notifications` 还包含通过 `subagent.started` 发现的后代，均按协议传输顺序排列。结果不携带提示词级状态或轮次原因。传输丢失、超时和协议违例会导致 Promise 被拒绝；模型结果仍可在事件流中观察，但不会归属于某一输入。
 
+`toolTraceEvents(result.events)` 会筛选根会话的持久工具调用链：调用与结果、策略结算、现有审批对、工具主体的精确进入与结算，以及 Code Mode 嵌套调度。`isToolTraceEvent(event)` 是对应的类型守卫。两个辅助函数都保留对象恒等性和事件顺序；它们不会建立第二个订阅，也不会补全缺失记录。其他会话事实仍使用原始 `events` 数组。后代工具记录仍位于 `notifications`；调用方可提取其中的 `session.event` 载荷并使用同一组辅助函数。时间以事件包络的时间戳为准，`approval/asked` 通过审批 id 关联后续决定。
+
+```ts
+import { toolTraceEvents, type RunResult } from '@deepseek-ai/dsh-sdk-client'
+
+declare const result: RunResult
+for (const event of toolTraceEvents(result.events)) {
+  console.log(event.seq, event.type, event.time)
+}
+```
+
 ## HarnessClient
 
 自有运行 API 之下的协议客户端：显式 `start()`/`initialize()`/`prompt()`/`request()`/`close()`，外加通知订阅。`prompt()` 在运行时接受排队消息后立即返回该消息的 ID，绝不等待 agent 活动。`subscribe(filter?)` 返回 `NotificationSubscription`（可等待的 `next()`、非阻塞 `tryNext()`、异步迭代）；`subscribeSessionTree(id)` 把范围限定到一个会话及从 `subagent.started` 血缘边发现的后代——运行时对上下文内每个会话都发通知，范围限定在客户端完成，与 Python SDK 完全一致。本包导出有明确类型的错误：`JsonRpcResponseError`（协议错误响应，保留 code/data）、`RequestTimeoutError`（配置的时限已到）、`SdkProtocolError`（响应超出文档化协议）、`TransportClosedError`（运行时已消失——消息携带退出码与有界 stderr 尾部）。

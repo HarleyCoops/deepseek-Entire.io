@@ -585,6 +585,28 @@ export interface Config {
 
 Source: [`packages/e2b/e2b/src/index.ts:43`](../packages/e2b/e2b/src/index.ts)
 
+<a id="deepseek-aidsh-entire-bridge"></a>
+
+## `@deepseek-ai/dsh-entire-bridge`
+
+Requires: `sessions` · `subprocess`
+
+```ts config-catalog
+/** Clone-local bridge limits and privacy mode. */
+export interface Config {
+  /** Omit tool inputs/results and assistant reasoning blocks from the sidecar. */
+  strict?: boolean
+  /** Complete serialized byte cap applied to each tool-result sidecar record. */
+  toolResultMaxBytes?: number
+  /** Managed-process termination grace for Entire hooks. */
+  hookGraceMs?: number
+  /** In-memory byte cap for each ignored Entire hook output stream. */
+  hookOutputMaxBytes?: number
+}
+```
+
+Source: [`packages/hooks/entire-bridge/src/index.ts:44`](../packages/hooks/entire-bridge/src/index.ts)
+
 <a id="deepseek-aidsh-fs-local"></a>
 
 ## `@deepseek-ai/dsh-fs-local`
@@ -2794,7 +2816,7 @@ export interface Config {
 export type ToolPresentationMode = 'native' | 'code' | 'both'
 ```
 
-Source: [`packages/core/tools/src/index.ts:654`](../packages/core/tools/src/index.ts)
+Source: [`packages/core/tools/src/index.ts:663`](../packages/core/tools/src/index.ts)
 
 <a id="deepseek-aidsh-typert-loader"></a>
 

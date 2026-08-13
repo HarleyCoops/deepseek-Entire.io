@@ -28,6 +28,7 @@ const SEARCH_EXPECTED = join(SNAPSHOT_DIR, 'search-results.expected.md')
 const TERMINAL_EXPECTED = join(SNAPSHOT_DIR, 'terminal-card.expected.md')
 const MODE = webSnapshotMode()
 const SEED_ID = 'navigation-panes-web-e2e'
+const READ_CALL_ID = 'call_01_tK4hIIRVTMgAvdzs7m9j6212'
 
 // Turn 1 leads with a distinctive word: the session-title fallback takes the
 // first words of the first message, so the sidebar-search scenario has a
@@ -175,11 +176,37 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     }
     await recordFixture(scaffold, sessionId!, SEED)
     // Fixture honesty: the recording must contain the events the replay
-    // scenarios assert on: three calls in turn 1 and two closed turns.
+    // scenarios assert on: three calls in turn 1, the two lifecycle chains
+    // used by the timing and handoff checks, and two closed turns.
     const recorded = parseSessionLog(await readFile(SEED, 'utf8'))
     expect(recorded.filter(e => e.type === 'turn/end')).toHaveLength(2)
     const calls = recorded.filter((e): e is SessionEvent & { data: { name: string } } => e.type === 'tool/call')
     expect(calls.map(e => e.data.name).sort()).toEqual(['bash', 'read', 'read'])
+    const bashCall = calls.find(e => e.data.name === 'bash') as SessionEvent & {
+      data: { callId: string; name: string }
+    }
+    const bashLifecycle = recorded.filter(e => (
+      e.type === 'tool/policy-result' || e.type === 'tool/body-start' || e.type === 'tool/body-end'
+    ) && (e.data as { callId?: string }).callId === bashCall.data.callId)
+    expect(bashLifecycle.map(e => e.type)).toEqual([
+      'tool/policy-result',
+      'tool/body-start',
+      'tool/body-end',
+    ])
+    expect(bashLifecycle[0]?.data).toMatchObject({
+      callId: bashCall.data.callId,
+      rootCallId: bashCall.data.callId,
+      name: 'bash',
+      outcome: 'allowed',
+      source: 'pre-execute',
+    })
+    expect(recorded.filter(e => (
+      e.type === 'tool/policy-result' || e.type === 'tool/body-start' || e.type === 'tool/body-end'
+    ) && (e.data as { callId?: string }).callId === READ_CALL_ID).map(e => e.type)).toEqual([
+      'tool/policy-result',
+      'tool/body-start',
+      'tool/body-end',
+    ])
   }, 400_000)
 
   it.skipIf(MODE === 'record')('finds an unopened seeded session by message content and opens it', async () => {
@@ -223,10 +250,19 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await expect.poll(() => page.locator('[role="treeitem"]').count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
   }, 90_000)
 
-  it.skipIf(MODE === 'record')('renders the trajectory ledger and opens its local record inspector', async () => {
+  it.skipIf(MODE === 'record')('opens the exact tool chain from Chat and renders lifecycle timing', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-trajectory'))
     await ensureSeedOpen(page)
-    await page.getByRole('tab', { name: 'Trajectory' }).click()
+    const handoff = page.getByRole('button', { name: 'View tool chain' }).first()
+    const handoffCall = handoff
+      .locator('xpath=ancestor::*[@data-chat-call-id][1]')
+    await expect.poll(() => handoffCall.getAttribute('data-chat-call-id'), { timeout: 10_000 })
+      .toBe(READ_CALL_ID)
+    await handoff.click()
+    await expect.poll(
+      () => page.getByRole('tab', { name: 'Trajectory' }).getAttribute('aria-selected'),
+      { timeout: 10_000 },
+    ).toBe('true')
     await page.waitForTimeout(100)
     const overlayLayout = await page.getByRole('table').evaluate((table) => {
       const host = table.closest('[data-conversation-scroll]')
@@ -257,7 +293,6 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // Turn rules partition the ledger without restoring a separate header row.
     await expect.poll(() => page.locator('tr[data-turn-start="true"]').count(), { timeout: 15_000 }).toBe(2)
     await expect.poll(() => page.getByRole('columnheader').count(), { timeout: 10_000 }).toBe(0)
-    await page.locator('tr[data-kind="tool"]').first().click()
     const details = page.getByRole('complementary', { name: 'Event details' })
     await expect.poll(() => details.count(), { timeout: 10_000 }).toBe(1)
     expect(await details.getByRole('tabpanel').evaluate(panel => getComputedStyle(panel).overflowX))
@@ -269,8 +304,20 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     }))
     expect(darkSummarySurfaces.heading).toBe(darkSummarySurfaces.panel)
     await page.evaluate(() => { document.body.removeAttribute('data-ds-dark-theme') })
-    await page.getByRole('tab', { name: 'Result' }).click()
-    await expect.poll(() => page.getByText('NAVIGATION_OK', { exact: false }).count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1)
+    await details.getByRole('tab', { name: 'Timing' }).click()
+    await expect.poll(
+      () => details.locator('dl > div').evaluateAll(rows => rows.map(row => [
+        row.querySelector('dt')?.textContent,
+        row.querySelector('dd')?.textContent,
+      ])),
+      { timeout: 10_000 },
+    ).toEqual([
+      ['Total', '8 ms'],
+      ['Policy', '2 ms'],
+      ['Policy outcome', 'allowed · pre-execute'],
+      ['Body', '4 ms'],
+      ['Body outcome', 'returned · aborted: false'],
+    ])
     const assistantSpan = page.locator('[data-timeline-span="message"][data-assistant-timing="true"]').first()
     await assistantSpan.hover()
     const timingTooltip = page.getByRole('tooltip')

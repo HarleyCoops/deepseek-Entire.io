@@ -95,8 +95,7 @@ export interface ToolRowProps {
   /** Open the path with the host OS default application (already cwd-resolved). */
   onOpenFile?: ((path: string) => void) | undefined
   /**
-   * Jump to this call in the trajectory view: a hover-revealed Inspect pill
-   * over the expanded body. Absent = no affordance.
+   * Jump to this exact call in the trajectory view. Absent = no affordance.
    */
   inspect?: (() => void) | undefined
 }
@@ -231,8 +230,7 @@ export function ToolRow({
           </>
         )}
       >
-        {/* The wrapper (sibling of the header row, so clicks inside never
-            toggle it) carries the expanded body and the Inspect pill below. */}
+        {/* The wrapper is a sibling of the header row, so body clicks never toggle it. */}
         <div className={css.bodyWrap}>
           {terminalBody !== null
             ? (
@@ -290,18 +288,14 @@ export function ToolRow({
                         )}
                       </>
                     )}
-          {inspect !== undefined && (
-            <button
-              type="button"
-              className={css.inspectButton}
-              onClick={inspect}
-            >
-              <IconInspectOutline12 />
-              Inspect
-            </button>
-          )}
         </div>
       </DisclosureRow>
+      {inspect !== undefined && (
+        <button type="button" className={css.inspectButton} onClick={inspect}>
+          <IconInspectOutline12 />
+          {t('row.viewToolChain')}
+        </button>
+      )}
     </div>
   )
 }

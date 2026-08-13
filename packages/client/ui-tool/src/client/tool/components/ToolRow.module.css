@@ -130,7 +130,7 @@
   color: var(--dsw-alias-state-error-primary);
 }
 
-/* Expanded body + Inspect pill wrapper (sibling of .row: clicks never toggle). */
+/* Expanded body wrapper (sibling of .row: clicks never toggle). */
 .bodyWrap {
   display: flex;
   flex-direction: column;
@@ -156,13 +156,6 @@
   font-size: 11px;
   line-height: 16px;
   cursor: pointer;
-  opacity: 0;
-  transition: opacity 100ms ease;
-}
-
-.root:hover .inspectButton,
-.inspectButton:focus-visible {
-  opacity: 1;
 }
 
 /* Solid hover fill (a translucent token would let content bleed through). */

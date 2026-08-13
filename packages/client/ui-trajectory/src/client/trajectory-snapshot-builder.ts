@@ -6,7 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
   TrajectoryConversationViewNode, TrajectoryRequestHeaderState,
-  TrajectorySnapshot,
+  TrajectorySnapshot, TrajectoryToolTiming,
 } from './trajectory-contract.ts'
 
 const EMPTY_LIST: readonly never[] = []
@@ -19,6 +19,7 @@ export const EMPTY_TRAJECTORY_SNAPSHOT: TrajectorySnapshot = {
   eventLocations: new Map(),
   requests: EMPTY_LIST,
   callSchemas: new Map(),
+  toolTimings: new Map(),
   partial: null,
   runningCalls: EMPTY_LIST,
 }
@@ -174,10 +175,15 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
 
   private snapshot(): TrajectorySnapshot {
     const headersByStep = new Map<string, TrajectoryRequestHeaderState>()
+    const approvalsByCall = new Map<string, TrajectoryToolTiming['approval']>()
     for (const contribution of this.contributions) {
-      if (contribution.data.kind !== 'request-header') continue
-      const key = headerStepKey(contribution.data.header)
-      if (key !== undefined) headersByStep.set(key, contribution.data.header)
+      if (contribution.data.kind === 'request-header') {
+        const key = headerStepKey(contribution.data.header)
+        if (key !== undefined) headersByStep.set(key, contribution.data.header)
+      }
+      else if (contribution.data.kind === 'approval') {
+        approvalsByCall.set(contribution.data.callId, contribution.data.approval)
+      }
     }
     const finalized: ConversationNode[] = []
     const eventLocations = new Map<number, TrajectoryConversationViewNode['location']>()
@@ -185,6 +191,7 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
     const boundaries: { seq: number; time: number }[] = []
     const turnEndings: { turn: number; time: number; error?: string }[] = []
     const callSchemas = new Map<string, ToolSchema>()
+    const toolTimings = new Map<string, TrajectoryToolTiming>()
     const consumedPromptChanges = new Set<number>()
     let previousHeader: TrajectoryRequestHeaderState | undefined
     let previousTools: ReadonlyMap<string, ToolSchema> = new Map()
@@ -223,8 +230,13 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
         if (previousHeader !== undefined && previousHeader.seq < contribution.anchorSeq) {
           captureSchemas(data.root, previousTools, callSchemas)
         }
+        for (const [callId, timing] of data.timings ?? []) {
+          const approval = approvalsByCall.get(callId)
+          toolTimings.set(callId, approval === undefined ? timing : { ...timing, approval })
+        }
         continue
       }
+      if (data.kind === 'approval') continue
       if (data.kind === 'compaction') {
         requests.push(data.request)
         continue
@@ -250,6 +262,7 @@ export class TrajectorySnapshotBuilder implements ConversationViewBuilder<
       eventLocations,
       requests,
       callSchemas,
+      toolTimings,
       partial,
       runningCalls,
     }

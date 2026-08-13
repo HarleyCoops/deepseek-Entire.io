@@ -5,7 +5,27 @@ import { expect, it } from 'vitest'
 import type {} from '@deepseek-ai/dsh-skill'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-agent-presets'
-import { launchWebScaffold, type WebScaffold } from './scaffold.ts'
+import { launchWebScaffold, realizeSeedFixture, type WebScaffold } from './scaffold.ts'
+
+it('realizes seed placeholders safely for a Windows workspace path', () => {
+  const workspaceCwd = String.raw`C:\Users\chris\dsh-workspace`
+  const fixture = [
+    '{"type":"session","version":0,"id":"{{sessionId}}","createdAt":1,"cwd":"{{cwd}}/recorded"}',
+    '{"type":"turn/start","seq":0,"time":1,"data":{"turn":1,"trigger":{"kind":"resume"}}}',
+    '{"type":"user/message","seq":1,"time":2,"data":{"content":[{"type":"text","text":"{{cwd}}/recorded/file.txt"}],"source":{"kind":"user","rpcId":"r1"}}}',
+    '{"type":"turn/end","seq":2,"time":3,"data":{"turn":1,"reason":{"kind":"completed"}}}',
+  ].join('\n')
+
+  const realized = realizeSeedFixture({ workspaceCwd } as WebScaffold, fixture, 'windows-seed')
+  const [header, , message] = realized.split('\n').map(line => JSON.parse(line) as {
+    id?: string
+    cwd?: string
+    data?: { content?: Array<{ text?: string }> }
+  })
+
+  expect(header).toMatchObject({ id: 'windows-seed', cwd: workspaceCwd })
+  expect(message?.data?.content?.[0]?.text).toBe(`${workspaceCwd}/file.txt`)
+})
 
 async function writeSkill(root: string, name: string): Promise<void> {
   const bundle = join(root, name)

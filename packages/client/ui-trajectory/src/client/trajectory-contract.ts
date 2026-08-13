@@ -3,6 +3,39 @@ import type {
   ConversationPromptSnapshot, ConversationViewNode, PartialAssistant,
   RequestPromptChange, RequestView, RunningToolCall, ToolCallBlock,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolPolicyResult } from '@deepseek-ai/dsh-tools/types'
+
+/** One timestamp-delimited portion of a tool call. Missing endpoints stay unknown. */
+export interface TrajectoryTimingSpan {
+  readonly startedAt: number | null
+  readonly completedAt: number | null
+  readonly durationMs: number | null
+}
+
+/** Policy settlement for one exact root or nested Tool call. */
+export interface TrajectoryPolicyTiming extends TrajectoryTimingSpan {
+  readonly outcome: ToolPolicyResult['outcome'] | null
+  readonly source: ToolPolicyResult['source'] | null
+}
+
+/** Approval wait joined to one exact Tool call through its approval id. */
+export interface TrajectoryApprovalTiming extends TrajectoryTimingSpan {
+  readonly outcome: 'allowed-once' | 'rejected' | 'cancelled' | 'unavailable' | null
+}
+
+/** Awaited Tool body settlement, excluding policy and result finalization. */
+export interface TrajectoryBodyTiming extends TrajectoryTimingSpan {
+  readonly outcome: 'returned' | 'threw' | null
+  readonly aborted: boolean | null
+}
+
+/** Complete timing chain for one exact root or nested Tool call. */
+export interface TrajectoryToolTiming {
+  readonly total: TrajectoryTimingSpan
+  readonly policy: TrajectoryPolicyTiming
+  readonly approval?: TrajectoryApprovalTiming
+  readonly body?: TrajectoryBodyTiming
+}
 
 /** Request-header facts retained by the Trajectory target. */
 export interface TrajectoryRequestHeaderState {
@@ -28,6 +61,12 @@ export type TrajectoryContribution =
   | {
     readonly kind: 'tool'
     readonly root: ToolCallBlock
+    readonly timings?: ReadonlyMap<string, TrajectoryToolTiming>
+  }
+  | {
+    readonly kind: 'approval'
+    readonly callId: string
+    readonly approval: TrajectoryApprovalTiming
   }
   | {
     readonly kind: 'request-header'
@@ -63,6 +102,7 @@ export interface TrajectorySnapshot {
   readonly eventLocations: ReadonlyMap<number, ConversationLocation>
   readonly requests: readonly RequestView[]
   readonly callSchemas: ReadonlyMap<string, ConversationPromptSnapshot['tools'][number]>
+  readonly toolTimings: ReadonlyMap<string, TrajectoryToolTiming>
   readonly partial: PartialAssistant | null
   readonly runningCalls: readonly RunningToolCall[]
 }

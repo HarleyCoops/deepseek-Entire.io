@@ -26,6 +26,7 @@ import type { CodeSdkLanguage } from './code-mode.ts'
 import { renderToolsSdk } from './ts-types.ts'
 import type { ToolSdkSchema } from './ts-types.ts'
 import { renderToolsSdkPy } from './py-types.ts'
+import type { ToolLifecycleIdentity, ToolPolicyResult } from './types.ts'
 
 /**
  * Language → SDK-section renderer. The registry looks up the loaded
@@ -99,7 +100,15 @@ export {
 } from './json-schema.ts'
 
 export type { JsonValue } from '@deepseek-ai/dsh-session'
-export type { CodeDispatchEventData, CodeDispatchStartEventData } from './types.ts'
+export type {
+  CodeDispatchEventData,
+  CodeDispatchStartEventData,
+  ToolBodyEndEventData,
+  ToolBodyStartEventData,
+  ToolLifecycleIdentity,
+  ToolPolicyResult,
+  ToolPolicyResultEventData,
+} from './types.ts'
 
 export { CodeRunFailedError, RUN_CODE_NAME } from './code-mode.ts'
 export { jsonSchemaToTs, renderToolsSdk } from './ts-types.ts'
@@ -754,10 +763,15 @@ class ToolLayer implements ScopeLayer {
 }
 
 /** Approval decision plus whether the approval channel reported cancellation. */
-interface ToolAskResolution {
-  readonly decision: Extract<PreToolDecision, { kind: 'allow' | 'deny' }>
-  readonly approvalCancelled: boolean
-}
+type ToolAskResolution =
+  | {
+    readonly decision: Extract<PreToolDecision, { kind: 'allow' | 'deny' }>
+    readonly approvalCancelled: false
+  }
+  | {
+    readonly decision: Extract<PreToolDecision, { kind: 'deny' }>
+    readonly approvalCancelled: true
+  }
 
 /** Caller cancellation and dispatch state kept outside the around-wrapper view. */
 interface ToolCancellationState {
@@ -1470,40 +1484,102 @@ export class ToolRuntime extends Service {
     if (this.callerCancelled(exec)) {
       return next({ kind: 'final-result', exec, result: toolAbortedBeforeDispatchResult() })
     }
+    let preparation: ScheduledToolPreparation
+    let policyResult: ToolPolicyResult
+    let stage: ToolPolicyResult['source'] = 'pre-execute'
     try {
       const carrier = scopeTarget(this, exec.agent)
       const gate = await this.ctx.waterfall(
         carrier, 'tools/pre-execute', exec,
         () => Promise.resolve<PreToolDecision>({ kind: 'allow' }),
       )
+      const approvalRequested = gate.kind === 'ask'
+      stage = approvalRequested ? 'approval' : 'pre-execute'
       const askResolution: ToolAskResolution = gate.kind === 'ask'
         ? await this.serviceAsk(exec, gate)
         : { decision: gate, approvalCancelled: false }
-      const { decision } = askResolution
-      if (this.callerCancelled(exec) && askResolution.approvalCancelled) {
-        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
-      }
-      const denialReason = decision.kind === 'allow'
-        ? this.guardReason(exec)
-        : decision.reason
-      if (denialReason !== undefined) {
-        return await next({
+      if (askResolution.approvalCancelled) {
+        const { decision } = askResolution
+        policyResult = { outcome: 'cancelled', source: 'approval' }
+        preparation = this.callerCancelled(exec)
+          ? { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
+          : {
+              kind: 'post-result',
+              exec,
+              result: this.materializeFinalResult({
+                content: [{ type: 'text', text: `Error: ${decision.reason}` }],
+                isError: true,
+                error: { message: decision.reason },
+              }),
+            }
+      } else if (askResolution.decision.kind === 'deny') {
+        const { decision } = askResolution
+        policyResult = { outcome: 'denied', source: approvalRequested ? 'approval' : 'pre-execute' }
+        preparation = {
           kind: 'post-result',
           exec,
           result: this.materializeFinalResult({
-            content: [{ type: 'text', text: `Error: ${denialReason}` }],
+            content: [{ type: 'text', text: `Error: ${decision.reason}` }],
             isError: true,
-            error: { message: denialReason },
+            error: { message: decision.reason },
           }),
-        })
+        }
+      } else {
+        stage = 'guard'
+        const denialReason = this.guardReason(exec)
+        if (denialReason !== undefined) {
+          policyResult = { outcome: 'denied', source: 'guard' }
+          preparation = {
+            kind: 'post-result',
+            exec,
+            result: this.materializeFinalResult({
+              content: [{ type: 'text', text: `Error: ${denialReason}` }],
+              isError: true,
+              error: { message: denialReason },
+            }),
+          }
+        } else if (this.callerCancelled(exec)) {
+          policyResult = { outcome: 'cancelled', source: 'caller' }
+          preparation = { kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() }
+        } else {
+          policyResult = { outcome: 'allowed', source: approvalRequested ? 'approval' : 'pre-execute' }
+          preparation = { kind: 'dispatch', exec }
+        }
       }
-      if (this.callerCancelled(exec)) {
-        return await next({ kind: 'post-result', exec, result: toolAbortedBeforeDispatchResult() })
-      }
-      return await next({ kind: 'dispatch', exec })
     } catch (error: unknown) {
-      return next({ kind: 'final-result', exec, result: toolErrorResult(error) })
+      policyResult = { outcome: 'failed', source: stage }
+      preparation = { kind: 'final-result', exec, result: toolErrorResult(error) }
     }
+    this.appendPolicyResult(exec, policyResult)
+    return await next(preparation)
+  }
+
+  /** Durable identity shared by one execution's bounded lifecycle records. */
+  private lifecycleIdentity(exec: ToolRunContext): ToolLifecycleIdentity {
+    return { callId: exec.callId, rootCallId: exec.rootCallId, name: exec.name }
+  }
+
+  /** Append one informational policy settlement when the execution has an owning session. */
+  private appendPolicyResult(exec: ToolRunContext, result: ToolPolicyResult): void {
+    exec.agent?.session.append(
+      'tool/policy-result',
+      { ...this.lifecycleIdentity(exec), ...result },
+      { ignorable: true },
+    )
+  }
+
+  /** Append the informational marker immediately before invoking a resolved body. */
+  private appendBodyStart(exec: ToolRunContext): void {
+    exec.agent?.session.append('tool/body-start', this.lifecycleIdentity(exec), { ignorable: true })
+  }
+
+  /** Append the informational body settlement before output processing. */
+  private appendBodyEnd(exec: ToolRunContext, outcome: 'returned' | 'threw', aborted: boolean): void {
+    exec.agent?.session.append(
+      'tool/body-end',
+      { ...this.lifecycleIdentity(exec), outcome, aborted },
+      { ignorable: true },
+    )
   }
 
   /** Whether the original caller signal is currently aborted. */
@@ -1546,7 +1622,15 @@ export class ToolRuntime extends Service {
       const tool = this.resolveExecution(exec.name, exec.agent, exec.parent !== undefined)
       if (!tool) throw new ToolNotFoundError(exec.name)
       state.bodyInvoked = true
-      const returned = await tool.execute(exec.arguments, exec)
+      this.appendBodyStart(exec)
+      let returned: unknown
+      try {
+        returned = await tool.execute(exec.arguments, exec)
+      } catch (error: unknown) {
+        this.appendBodyEnd(exec, 'threw', isAborted(signal))
+        throw error
+      }
+      this.appendBodyEnd(exec, 'returned', isAborted(signal))
       const result = this.createSuccessResult(exec, tool, returned)
       return isAborted(signal)
         ? toolAbortedResult(result)

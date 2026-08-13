@@ -85,6 +85,7 @@ function historySnapshot(
     partial: null,
     runningCalls: [],
     ...inspection,
+    toolTimings: inspection.toolTimings ?? new Map(),
   }
   return {
     sessionId: SID,

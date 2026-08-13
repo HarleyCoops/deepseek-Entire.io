@@ -1,4 +1,4 @@
-- button "Choose workspace":
+- button "Choose workspace folder":
   - img
   - text: workspace
   - img

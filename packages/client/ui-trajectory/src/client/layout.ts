@@ -18,6 +18,7 @@ import type {
   TrajectorySourceBlock,
 } from './trajectory-record.ts'
 import { formatElapsedSeconds } from './trajectory-record.ts'
+import type { TrajectoryToolTiming } from './trajectory-contract.ts'
 
 /** One Message or Step group inside a turn. */
 export interface TrajectoryGroupModel {
@@ -40,6 +41,7 @@ export interface TrajectoryLayoutInput {
   runningCalls: ConversationSnapshot['runningCalls']
   requests?: readonly RequestView[]
   callSchemas?: RequestInspectionSnapshot['callSchemas']
+  toolTimings?: ReadonlyMap<string, TrajectoryToolTiming>
 }
 
 interface UsageLike {
@@ -137,7 +139,7 @@ function inputCellDetail(node: InputNode): Pick<
  */
 export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly TrajectoryTurnModel[] {
   const {
-    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas,
+    nodes, eventLocations, partial, runningCalls, requests = [], callSchemas, toolTimings,
   } = input
   const resultByCall = indexResults(nodes)
   const callById = new Map<string, ToolCallBlock>(resultByCall)
@@ -512,7 +514,11 @@ export function deriveTrajectoryLayout(input: TrajectoryLayoutInput): readonly T
 
   for (const entry of [...turns.values(), ...standaloneCompactions]) {
     for (const group of entry.groups) {
-      for (const laid of group.laid) attachToolSchema(laid, callSchemas)
+      for (const laid of group.laid) {
+        attachToolSchema(laid, callSchemas)
+        const timing = laid.callId === undefined ? undefined : toolTimings?.get(laid.callId)
+        if (timing !== undefined) laid.cell.toolTiming = timing
+      }
     }
   }
 

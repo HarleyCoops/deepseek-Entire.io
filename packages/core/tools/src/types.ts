@@ -7,6 +7,32 @@
 import type { CallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 
+/** Stable identity shared by one tool call's durable policy and body records. */
+export interface ToolLifecycleIdentity {
+  readonly callId: CallId
+  readonly rootCallId: CallId
+  readonly name: string
+}
+
+/** Closed policy settlement recorded before dispatch or a policy-owned result. */
+export type ToolPolicyResult =
+  | { readonly outcome: 'allowed'; readonly source: 'pre-execute' | 'approval' }
+  | { readonly outcome: 'denied'; readonly source: 'pre-execute' | 'approval' | 'guard' }
+  | { readonly outcome: 'cancelled'; readonly source: 'approval' | 'caller' }
+  | { readonly outcome: 'failed'; readonly source: 'pre-execute' | 'approval' | 'guard' }
+
+/** Payload recorded when the ordered tool policy pipeline settles. */
+export type ToolPolicyResultEventData = ToolLifecycleIdentity & ToolPolicyResult
+
+/** Payload recorded immediately before a resolved tool body is invoked. */
+export type ToolBodyStartEventData = ToolLifecycleIdentity
+
+/** Payload recorded when an invoked tool body promise settles. */
+export interface ToolBodyEndEventData extends ToolLifecycleIdentity {
+  readonly outcome: 'returned' | 'threw'
+  readonly aborted: boolean
+}
+
 /** Payload recorded when one nested Code Mode Tool dispatch starts. */
 export interface CodeDispatchStartEventData {
   rootCallId: CallId
@@ -24,6 +50,22 @@ export interface CodeDispatchEventData extends CodeDispatchStartEventData {
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
+    /**
+     * The ordered pre-execute, optional approval, guard, and cancellation
+     * policy settled. The event precedes dispatch or the policy-owned result;
+     * it contains no reason or error text.
+     */
+    'tool/policy-result': ToolPolicyResultEventData
+    /**
+     * A resolved tool body is about to be invoked. Around-dispatch wrappers
+     * that short-circuit and unknown tools produce no body start.
+     */
+    'tool/body-start': ToolBodyStartEventData
+    /**
+     * The invoked body promise fulfilled or rejected, before output
+     * validation, rendering, post-execute policy, and finalization.
+     */
+    'tool/body-end': ToolBodyEndEventData
     /**
      * One sub-dispatch STARTING inside a `run_code` program: the parent
      * `run_code` call id, the deterministic sub-call id (`<parent>:code:<n>`,

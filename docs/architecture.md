@@ -95,6 +95,28 @@ The session log is the source of the context the model sees. `deriveMessages()` 
 
 **Model-visible means logged.** Anything that reaches a model request must be reconstructable from the log, and a runtime invariant asserts it. This is why a new model-visible input requires a new session event: extend `SessionEventMap` and render from the log.
 
+<a id="trace-and-checkpoint-flow"></a>
+
+## Trace and checkpoint flow
+
+The session log is also the only source for tool traces. A root `tool/call` or nested Code Mode dispatch joins by call identity with `tool/policy-result`, the existing `approval/asked` and `approval/decided` pair when an answer was required, `tool/body-start`, `tool/body-end`, and the final result. The event timestamps supply policy wait, body, and total duration without a second trace stream; a denied or cancelled call has no body events. `tool/body-end` records only whether the invoked body returned or threw and whether it was aborted, while `tool/result` remains the authoritative model-facing outcome after validation and post-execute policy.
+
+```mermaid
+flowchart LR
+  runtime["Agent loop and tool registry"] -->|append committed facts| log["Canonical SessionEvent log"]
+  log --> web["Web Chat and Trajectory"]
+  log --> sdk["TypeScript and Python SDK session events"]
+  log --> bridge["Dormant Entire bridge"]
+  marker["Exact clone-local Entire marker"] -->|activates| bridge
+  bridge --> sidecar["Bounded normalized JSONL sidecar"]
+  bridge --> hooks["entire hooks dsh lifecycle calls"]
+  sidecar --> adapter["Trusted entire-agent-dsh adapter"]
+  hooks --> adapter
+  adapter --> checkpoint["Entire checkpoint refs and optional private remote"]
+```
+
+Chat and Trajectory render from `session/event`, and the SDKs expose those same notifications with ergonomic tool-trace filtering. The optional Entire bridge is a dormant base-bundle observer: only the exact clone-local `.entire/dsh-hooks.json` marker activates sidecar writes and fixed-argument lifecycle hooks. The sidecar projects true prompts, committed assistant content and usage, root/nested tool facts, compaction, and parent/child lineage; it does not parse native persistence artifacts or create another authoritative stream. Hook and export failures are diagnostic-only and cannot change a model request or tool result. See the [Entire checkpoint guide](user/guide/entire.md) for setup, capture bounds, and current availability.
+
 ## Capability seams
 
 A **seam** is a swappable capability with three roles: a **Service Definition** declaring the interface, a **Service Provider** implementing it, and a **Consumer** using it, commonly a model-facing tool. A package may combine roles, but one role alone is not a seam; adding a capability means designing all three ([capability graph](capability-seams.md)).

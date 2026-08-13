@@ -1,21 +1,24 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { useRef, useState } from 'react'
 import type {
   SessionListState, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
+import { en as commonEn } from '@deepseek-ai/dsh-client-locale/src/locales/en.ts'
 import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from '../src/client/contract/slots.ts'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-web-react'
 import { WorkspacePicker } from '../src/client/WorkspacePicker.tsx'
-import { zh } from '../src/client/locales.ts'
+import { en, zh } from '../src/client/locales.ts'
 
 afterEach(cleanup)
 
 // The seat's key domain is workspace ∪ common; the stub mirrors the real
 // lookup chain (namespace, then common vocabulary, then the key).
 const t: WorkspacePickerProps['t'] = makeTranslate(zh, commonZh)
+const enT: WorkspacePickerProps['t'] = makeTranslate(en, commonEn)
 
 const wid = (id: string) => id as WorkspaceId
 function workspace(id: string, title = id): WorkspaceView {
@@ -81,6 +84,7 @@ function mount(
   items: readonly WorkspaceView[] = [workspace('alpha', 'Alpha')],
   createWorkspace = vi.fn(),
   occupancy = occupancySource(),
+  translate = t,
 ) {
   const onPick = vi.fn()
   const onClose = vi.fn()
@@ -97,7 +101,7 @@ function mount(
       createWorkspace={createWorkspace}
       useDirectoryFlow={occupancy.useDirectoryFlow}
       renderSlot={renderSlot}
-      t={t}
+      t={translate}
     />
   )
   const view = render(
@@ -110,10 +114,52 @@ function mount(
 }
 
 function chooseAdd(): void {
-  fireEvent.click(screen.getByRole('menuitem', { name: '添加工作区…' }))
+  fireEvent.click(screen.getByRole('menuitem', { name: '选择工作区文件夹' }))
 }
 
 describe('WorkspacePicker', () => {
+  it('keeps folder-only guidance visible through the controlled cold-start handoff', () => {
+    const occupancy = occupancySource()
+    const { probe, renderSlot } = flowProbe()
+
+    function ColdStartOwner() {
+      const [open, setOpen] = useState(false)
+      const anchorRef = useRef<HTMLButtonElement>(null)
+      return (
+        <>
+          <button ref={anchorRef} type="button" onClick={() => { setOpen(true) }}>Choose workspace folder</button>
+          <WorkspacePicker
+            open={open}
+            anchorRef={anchorRef}
+            useSessions={hook(sessions)}
+            useWorkspaces={hook(workspaceState([]))}
+            onPick={vi.fn()}
+            onClose={() => { setOpen(false) }}
+            createWorkspace={vi.fn()}
+            useDirectoryFlow={occupancy.useDirectoryFlow}
+            renderSlot={renderSlot}
+            t={enT}
+          />
+        </>
+      )
+    }
+
+    render(<ColdStartOwner />)
+    expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Choose workspace folder' }))
+    expect(probe.owner!.open).toBe(true)
+    expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
+    expect(screen.getByRole('status').textContent).toBe('Opening folder chooser…')
+  })
+
+  it('explains folder-only selection and announces the opening interaction', () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
+    expect(screen.getByText('Folders only; files are not attached here.')).toBeTruthy()
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose workspace folder' }))
+    expect(b.probe.owner!.open).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Opening folder chooser…')
+  })
+
   it('lists same-title Workspaces separately and forwards the selected id', () => {
     const b = mount([workspace('alpha', 'Shared'), workspace('beta', 'Shared')])
     const entries = screen.getAllByRole('menuitem', { name: 'Shared' })
@@ -142,19 +188,32 @@ describe('WorkspacePicker', () => {
     // choice, so the owner's open request lands in the flow itself.
     const b = mount([])
     expect(screen.queryByRole('menu')).toBeNull()
-    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '选择工作区文件夹' })).toBeNull()
     expect(b.onClose).toHaveBeenCalled()
     expect(screen.getByTestId('directory-flow')).toBeTruthy()
   })
 
-  it('treats flow cancellation as a silent no-op', () => {
-    const b = mount([workspace('alpha', 'Alpha')])
-    chooseAdd()
+  it('shows a dismissible status when folder selection is cancelled', () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose workspace folder' }))
     act(() => { b.probe.owner!.onCancel() })
     expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
     expect(b.onPick).not.toHaveBeenCalled()
-    expect(screen.queryByRole('dialog')).toBeNull()
+    expect(screen.getByRole('status').textContent).toContain('No folder selected')
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }))
+    expect(screen.queryByText('No folder selected')).toBeNull()
+  })
+
+  it('clears a cancelled notice when an existing Workspace is selected', () => {
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose workspace folder' }))
+    act(() => { b.probe.owner!.onCancel() })
+    expect(screen.getByText('No folder selected')).toBeTruthy()
+
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Alpha' }))
+    expect(b.onPick).toHaveBeenCalledWith(wid('alpha'))
+    expect(screen.queryByText('No folder selected')).toBeNull()
   })
 
   it('reports a non-Error adoption failure in the folder-error surface', async () => {
@@ -180,22 +239,25 @@ describe('WorkspacePicker', () => {
     // The flow is open but nothing is picked yet: a chooser pending on the
     // host display must already block concurrent workspace actions.
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '添加工作区…' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '选择工作区文件夹' }).disabled).toBe(true)
     act(() => { b.probe.owner!.onPicked('/tmp/project') })
     expect(b.probe.owner!.busy).toBe(true)
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(true)
-    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '添加工作区…' }).disabled).toBe(true)
+    expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: '选择工作区文件夹' }).disabled).toBe(true)
     await act(async () => { resolve(created); await pending })
     expect(b.probe.owner!.busy).toBe(false)
   })
 
   it('shows the flow-reported failure in the folder-error surface', () => {
-    const b = mount([workspace('alpha', 'Alpha')])
-    chooseAdd()
+    const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(), enT)
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Choose workspace folder' }))
     act(() => { b.probe.owner!.onError('no chooser installed') })
     expect(screen.getByRole('alert').textContent).toBe('no chooser installed')
     expect(screen.queryByTestId('directory-flow')).toBeNull()
     expect(b.createWorkspace).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Choose again' }))
+    expect(b.probe.owner!.open).toBe(true)
+    expect(screen.getByRole('status').textContent).toBe('Opening folder chooser…')
   })
 
   it('closes the folder-error surface when the user cancels', () => {
@@ -234,7 +296,7 @@ describe('WorkspacePicker', () => {
     // would pre-empt the workspaces about to arrive.
     expect(screen.getByRole('status').textContent).toBe('正在加载工作区…')
     expect(screen.queryByTestId('directory-flow')).toBeNull()
-    expect(screen.getByRole('menuitem', { name: '添加工作区…' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '选择工作区文件夹' })).toBeTruthy()
   })
 
   it('shows no popover at all when nothing is listed and nothing can be added', () => {
@@ -268,15 +330,15 @@ describe('WorkspacePicker', () => {
   it('hides the add entry while the directory-flow hole is empty', () => {
     mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(false))
     expect(screen.getByRole('menuitem', { name: 'Alpha' })).toBeTruthy()
-    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '选择工作区文件夹' })).toBeNull()
   })
 
   it('shows the add entry when a flow package activates after the first paint', () => {
     const b = mount([workspace('alpha', 'Alpha')], vi.fn(), occupancySource(false))
-    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '选择工作区文件夹' })).toBeNull()
     // Registration changes flow through the subscription, no re-render needed.
     act(() => { b.occupancy.flip(true) })
-    expect(screen.getByRole('menuitem', { name: '添加工作区…' })).toBeTruthy()
+    expect(screen.getByRole('menuitem', { name: '选择工作区文件夹' })).toBeTruthy()
   })
 
   it('keeps Choose again inert while the flow occupant is gone, and snaps back a flow opened over an empty hole', async () => {
@@ -301,7 +363,8 @@ describe('WorkspacePicker', () => {
     // cancel, so the owner withdraws and the actions come back.
     act(() => { b.occupancy.flip(false) })
     expect(b.probe.owner!.open).toBe(false)
+    expect(screen.queryByRole('status')).toBeNull()
     expect(screen.getByRole<HTMLButtonElement>('menuitem', { name: 'Alpha' }).disabled).toBe(false)
-    expect(screen.queryByRole('menuitem', { name: '添加工作区…' })).toBeNull()
+    expect(screen.queryByRole('menuitem', { name: '选择工作区文件夹' })).toBeNull()
   })
 })

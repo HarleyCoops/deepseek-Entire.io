@@ -13,6 +13,8 @@
 
 ## 行为
 
+`RunResult.events` 以线路顺序的原始 JSON 对象暴露所有根会话工具生命周期记录；后代工具记录仍位于 `RunResult.notifications`，因此 Python 调用方可以过滤同一组事件名，无需第二条追踪流。
+
 除非调用方选择显式通道，否则 SDK 会启动匹配的内置运行时。客户端选择通道并提供默认配置；运行时本身始终要求显式配置。[SDK 参考](sdk/README.md)和[运行时载体参考](sdk-runtime/README.md)定义完整的运行时选择与配置约定。
 
 ## 贡献者工作流

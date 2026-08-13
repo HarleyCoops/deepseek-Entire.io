@@ -3,7 +3,8 @@ import type {
   ConversationMatch, ConversationNodeContext, ConversationNodeDefinition,
   RunningToolCall, ToolCallBlock, ToolResultNode,
 } from '@deepseek-ai/dsh-client-runtime/client'
-import type {} from '@deepseek-ai/dsh-tools/types'
+import type { ToolPolicyResult } from '@deepseek-ai/dsh-tools/types'
+import type { TrajectoryTimingSpan, TrajectoryToolTiming } from './trajectory-contract.ts'
 import { trajectoryNode } from './trajectory-definition-common.ts'
 
 /* jscpd:ignore-start -- Target-owned Definitions intentionally keep their event
@@ -16,6 +17,19 @@ interface ToolState {
   readonly calls: ReadonlyMap<string, ToolCallBlock>
   readonly children: ReadonlyMap<string, readonly string[]>
   readonly parents: ReadonlyMap<string, string>
+  readonly lifecycle: ReadonlyMap<string, ToolLifecycleState>
+}
+
+interface ToolLifecycleState {
+  readonly totalStartedAt?: number
+  readonly totalCompletedAt?: number
+  readonly policy?: { readonly completedAt: number; readonly result: ToolPolicyResult }
+  readonly bodyStartedAt?: number
+  readonly body?: {
+    readonly completedAt: number
+    readonly outcome: 'returned' | 'threw'
+    readonly aborted: boolean
+  }
 }
 
 interface DispatchData {
@@ -149,12 +163,87 @@ function updateDispatch(state: ToolState, match: ConversationMatch): ToolState {
   calls.set(childId, event.type === 'tool/code-dispatch-start'
     ? childCall(match, data)
     : childResult(match, data, calls.get(childId)))
-  if (index >= 0) return { ...state, calls }
+  const lifecycle = new Map(state.lifecycle)
+  const previousLifecycle = lifecycle.get(childId) ?? {}
+  lifecycle.set(childId, event.type === 'tool/code-dispatch-start'
+    ? { ...previousLifecycle, totalStartedAt: match.event.time }
+    : { ...previousLifecycle, totalCompletedAt: match.event.time })
+  if (index >= 0) return { ...state, calls, lifecycle }
   const children = new Map(state.children)
   children.set(parentId, [...siblings, childId])
   const parents = new Map(state.parents)
   parents.set(childId, parentId)
-  return { ...state, calls, children, parents }
+  return { ...state, calls, children, parents, lifecycle }
+}
+
+function updateLifecycle(state: ToolState, match: ConversationMatch): ToolState {
+  const event = match.event
+  if (event.type !== 'tool/policy-result'
+    && event.type !== 'tool/body-start'
+    && event.type !== 'tool/body-end') return state
+  const callId = String(event.data.callId)
+  const lifecycle = new Map(state.lifecycle)
+  const previous = lifecycle.get(callId) ?? {}
+  if (event.type === 'tool/policy-result') {
+    const result: ToolPolicyResult = event.data
+    lifecycle.set(callId, {
+      ...previous,
+      policy: {
+        completedAt: event.time,
+        result,
+      },
+    })
+  }
+  else if (event.type === 'tool/body-start') {
+    lifecycle.set(callId, { ...previous, bodyStartedAt: event.time })
+  }
+  else {
+    lifecycle.set(callId, {
+      ...previous,
+      body: {
+        completedAt: event.time,
+        outcome: event.data.outcome,
+        aborted: event.data.aborted,
+      },
+    })
+  }
+  return { ...state, lifecycle }
+}
+
+function span(startedAt?: number, completedAt?: number): TrajectoryTimingSpan {
+  return {
+    startedAt: startedAt ?? null,
+    completedAt: completedAt ?? null,
+    durationMs: startedAt === undefined || completedAt === undefined
+      ? null
+      : Math.max(0, completedAt - startedAt),
+  }
+}
+
+function projectTimings(state: ToolState): ReadonlyMap<string, TrajectoryToolTiming> {
+  const timings = new Map<string, TrajectoryToolTiming>()
+  for (const [callId, lifecycle] of state.lifecycle) {
+    const policy = lifecycle.policy
+    const body = lifecycle.body
+    timings.set(callId, {
+      total: span(lifecycle.totalStartedAt, lifecycle.totalCompletedAt),
+      policy: {
+        ...span(lifecycle.totalStartedAt, policy?.completedAt),
+        outcome: policy?.result.outcome ?? null,
+        source: policy?.result.source ?? null,
+      },
+      ...(lifecycle.bodyStartedAt === undefined && body === undefined
+        ? {}
+        : {
+          body: {
+            ...span(lifecycle.bodyStartedAt, body?.completedAt),
+            outcome: body?.outcome ?? null,
+            aborted: body?.aborted ?? null,
+          },
+        }),
+    })
+  }
+  return timings
 }
 
 function interruption(
@@ -210,8 +299,17 @@ function fallbackState(context: ConversationNodeContext<ToolState>): ToolState |
     calls: new Map([[root.callId, root]]),
     children: new Map(),
     parents: new Map(),
+    lifecycle: new Map([[
+      root.callId,
+      {
+        ...(root.callTime === null ? {} : { totalStartedAt: root.callTime }),
+        totalCompletedAt: root.time,
+      },
+    ]]),
   }
-  for (const match of context.matches) state = updateDispatch(state, match)
+  for (const match of context.matches) {
+    state = updateLifecycle(updateDispatch(state, match), match)
+  }
   return state
 }
 
@@ -230,6 +328,14 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
         ? { id: rootCallId, role: 'update' }
         : null
     }
+    if (event.type === 'tool/policy-result'
+      || event.type === 'tool/body-start'
+      || event.type === 'tool/body-end') {
+      const rootCallId: unknown = event.data.rootCallId
+      return typeof rootCallId === 'string' && rootCallId !== ''
+        ? { id: rootCallId, role: 'update' }
+        : null
+    }
     return null
   },
   start: (_context, match) => {
@@ -239,17 +345,26 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
       calls: new Map([[root.callId, root]]),
       children: new Map(),
       parents: new Map(),
+      lifecycle: new Map([[root.callId, { totalStartedAt: match.event.time }]]),
     }
   },
   update: (context, match) => {
-    if (match.event.type !== 'tool/result') return updateDispatch(context.state, match)
+    if (match.event.type !== 'tool/result') {
+      return updateLifecycle(updateDispatch(context.state, match), match)
+    }
     const previous = context.state.calls.get(context.state.rootId)
     const running = previous !== undefined && !('kind' in previous) ? previous : undefined
     const result = rootResult(match, running)
     if (result === undefined) return context.state
     const calls = new Map(context.state.calls)
     calls.set(context.state.rootId, result)
-    return { ...context.state, calls }
+    const lifecycle = new Map(context.state.lifecycle)
+    const previousLifecycle = lifecycle.get(context.state.rootId) ?? {}
+    lifecycle.set(context.state.rootId, {
+      ...previousLifecycle,
+      totalCompletedAt: match.event.time,
+    })
+    return { ...context.state, calls, lifecycle }
   },
   buildViewNode: (context) => {
     const state = context.state ?? fallbackState(context)
@@ -258,7 +373,11 @@ const trajectoryToolDefinition: ConversationNodeDefinition<ToolState> = {
     if (root === undefined) return null
     const anchorSeq = context.start?.event.seq
       ?? ('kind' in root ? root.seq : context.matches[0]?.event.seq ?? 0)
-    return trajectoryNode(context, anchorSeq, { kind: 'tool', root })
+    return trajectoryNode(context, anchorSeq, {
+      kind: 'tool',
+      root,
+      timings: projectTimings(state),
+    })
   },
 }
 /* jscpd:ignore-end */

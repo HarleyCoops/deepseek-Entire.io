@@ -11,6 +11,7 @@
  * - `FAKE_STATUS`: the `session.finished` status (default `ok`).
  * - `FAKE_REASON_KIND`: the `session.finished` reason kind (default `completed`; `none` omits the reason).
  * - `FAKE_SUBAGENT`: also emit a child session (subagent.started + child event + subagent.finished).
+ * - `FAKE_TOOL_TRACE`: emit one complete bounded tool lifecycle in each active session.
  * - `FAKE_ECHO_CWD`: prefix the assistant text with the process cwd.
  * - `FAKE_ECHO_ENV`: comma-separated env names to echo as `name=value` lines in the assistant text.
  * - `FAKE_MALFORMED`: `initialize` returns `{}` (no serverInfo); `prompt` returns `{}` (no accepted).
@@ -74,8 +75,26 @@ function notify(method: string, params: object): void {
 }
 
 let seq = 0
-function event(sessionId: string, type: string, data: object): void {
-  notify('session.event', { sessionId, event: { type, seq: seq++, time: 0, data } })
+function event(sessionId: string, type: string, data: object, ignorable = false): void {
+  notify('session.event', {
+    sessionId,
+    event: { type, seq: seq++, time: 0, ...ignorable ? { ignorable: true } : {}, data },
+  })
+}
+
+function toolTrace(sessionId: string): void {
+  const callId = `${sessionId}-tool`
+  const identity = { callId, rootCallId: callId, name: 'fake_tool' }
+  event(sessionId, 'tool/call', { turn: 0, step: 0, callId, name: 'fake_tool', arguments: '{}' })
+  event(sessionId, 'tool/policy-result', { ...identity, outcome: 'allowed', source: 'pre-execute' }, true)
+  event(sessionId, 'tool/body-start', identity, true)
+  event(sessionId, 'tool/body-end', { ...identity, outcome: 'returned', aborted: false }, true)
+  event(sessionId, 'tool/result', {
+    turn: 0,
+    step: 0,
+    message: { role: 'tool', content: [], source: { callId, toolName: 'fake_tool' } },
+    isError: false,
+  })
 }
 
 function assistantText(): string {
@@ -95,6 +114,7 @@ function runTurn(sessionId: string): void {
     return
   }
   event(sessionId, 'turn/start', { turn: 0 })
+  if (env.FAKE_TOOL_TRACE !== undefined) toolTrace(sessionId)
   event(sessionId, 'assistant/chunk', { turn: 0, step: 0, chunk: { type: 'text-delta', index: 0, text } })
   if (env.FAKE_MALFORMED_MESSAGE !== undefined) {
     event(sessionId, 'assistant/message', {
@@ -130,12 +150,15 @@ function runTurn(sessionId: string): void {
   if (env.FAKE_SUBAGENT !== undefined) {
     const childId = `${sessionId}-child`
     notify('subagent.started', { parentSessionId: sessionId, childSessionId: childId })
+    event(childId, 'turn/start', { turn: 0 })
+    if (env.FAKE_TOOL_TRACE !== undefined) toolTrace(childId)
     event(childId, 'assistant/message', {
       turn: 0,
       step: 0,
       content: [{ type: 'text', text: 'child says hi' }],
       provenance: { provider: 'fake', model: 'fake' },
     })
+    event(childId, 'turn/end', { turn: 0, reason: { kind: 'completed' } })
     notify('subagent.finished', {
       provider: 'spawn',
       agentId: childId,

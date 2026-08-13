@@ -10,6 +10,7 @@
  */
 import type { ReactNode, RefObject } from 'react'
 import { useCallback, useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import {
   Button, IconFolderClose16, IconPlusOutline16, Menu, Modal, type MenuEntry,
 } from '@deepseek-ai/dsh-client-ui-primitives'
@@ -21,6 +22,8 @@ import type { DirectoryFlowOwnerProps, WorkspacePickerProps } from './contract/s
 import css from './WorkspacePicker.module.css'
 
 const ADD_WORKSPACE = '::add-workspace'
+
+type PickerNotice = 'opening' | 'cancelled' | null
 
 /** Core flow props: the owner supplies popover control and pick semantics. */
 export interface WorkspacePickFlowProps {
@@ -79,6 +82,7 @@ export function WorkspacePickFlow({
   const [modalError, setModalError] = useState<string | null>(null)
   const [flowOpen, setFlowOpen] = useState(false)
   const [pickingFolder, setPickingFolder] = useState(false)
+  const [notice, setNotice] = useState<PickerNotice>(null)
   // One picking interaction at a time: while the flow is open (native chooser
   // pending, browse dialog up) or its pick is being adopted, every other
   // menu action stays disabled — a late outcome must not race a concurrent
@@ -90,13 +94,18 @@ export function WorkspacePickFlow({
   // framework-bound hook keeps occupancy live: flow plugins activate (and
   // HMR-reload) independently of this menu's renders.
   const flowAvailable = useDirectoryFlow(occupied => occupied)
+  const showFolderHelp = flowAvailable
+    && ((!addOnly && selectedId === undefined) || open || notice !== null)
   // An occupant that unloads mid-interaction leaves nobody to cancel: an
   // open flow over an empty hole withdraws so the menu actions come back.
   // flowOpen is a dependency because the flow can also OPEN over an already
   // empty hole (Choose again after the occupant unloaded with the error
   // dialog up) — that transition must snap back too, not just occupancy loss.
   useEffect(() => {
-    if (flowOpen && !flowAvailable) setFlowOpen(false)
+    if (flowOpen && !flowAvailable) {
+      setFlowOpen(false)
+      setNotice(null)
+    }
   }, [flowOpen, flowAvailable])
   const addEntries: MenuEntry[] = flowAvailable
     ? [{ id: ADD_WORKSPACE, label: t('menu.addWorkspace'), icon: <IconPlusOutline16 size={16} />, disabled: flowBusy }]
@@ -137,6 +146,7 @@ export function WorkspacePickFlow({
     onClose()
     setErrorOpen(false)
     setModalError(null)
+    setNotice('opening')
     setFlowOpen(true)
   }, [onClose])
 
@@ -161,12 +171,17 @@ export function WorkspacePickFlow({
     open: flowOpen,
     busy: pickingFolder,
     onPicked: (path) => {
+      setNotice(null)
       setPickingFolder(true)
       void adoptDirectory(path).finally(() => { setPickingFolder(false) })
     },
-    onCancel: () => { setFlowOpen(false) },
+    onCancel: () => {
+      setFlowOpen(false)
+      setNotice('cancelled')
+    },
     onError: (message) => {
       setFlowOpen(false)
+      setNotice(null)
       setModalError(message)
       setErrorOpen(true)
     },
@@ -177,8 +192,25 @@ export function WorkspacePickFlow({
       openDirectoryFlow()
       return
     }
+    setNotice(null)
     onPick(id as WorkspaceId)
   }
+
+  const feedback = (
+    <>
+      {showFolderHelp && <div className={css.pickerHelp}>{t('picker.folderOnly')}</div>}
+      {notice === 'opening' && <div className={css.pickerStatus} role="status">{t('picker.opening')}</div>}
+      {notice === 'cancelled' && (
+        <div className={css.pickerStatus} role="status">
+          <span>{t('picker.cancelled')}</span>
+          <Button variant="outline" className={css.noticeAction} onClick={() => { setNotice(null) }}>{t('picker.dismiss')}</Button>
+        </div>
+      )}
+    </>
+  )
+  const renderedFeedback = addOnly && (showFolderHelp || notice !== null) && typeof document !== 'undefined'
+    ? createPortal(<div className={css.pickerOverlay}>{feedback}</div>, document.body)
+    : feedback
 
   return (
     <>
@@ -195,6 +227,7 @@ export function WorkspacePickFlow({
         getAnchorRect={getAnchorRect}
       />
       {open && !addIsTheOnlyEntry && !menuIsEmpty && workspaceSnapshot.phase === 'pending' && <div className={css.menuStatus} role="status">{t('picker.loading')}</div>}
+      {renderedFeedback}
       {renderDirectoryFlow(flowOwner)}
       <Modal
         open={errorOpen}

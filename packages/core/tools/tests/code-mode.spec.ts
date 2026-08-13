@@ -61,7 +61,7 @@ async function setup(options: SetupOptions = {}) {
 
 /** Mint an agent scope configured like production that can register scoped tool policy. */
 async function mintAgentScope(ctx: Context, name = 'scoped'): Promise<{ scope: Scope; agent: Agent }> {
-  const agent = { id: SessionId(name) } as Agent
+  const agent = { id: SessionId(name), session: Session.create(SessionId(name)) } as Agent
   let scope!: Scope
   await ctx.plugin(Object.assign((inner: Context) => { scope = createScope(inner, agent) },
     { inject: ['tools', 'systemPrompt'] }))
@@ -796,6 +796,54 @@ describe('the sub-dispatch scheduler (native concurrency contract)', () => {
 })
 
 describe('the run_code dispatch bridge', () => {
+  it('records each nested body lifecycle under its sub-call and root call identities', async () => {
+    const { ctx, runtime } = await setup({ mode: 'code' })
+    registerEcho(ctx)
+    const { agent, events } = fakeAgent()
+    runtime.behavior = async (request) => ({
+      logs: [],
+      value: await request.bindings[0]!.functions.echo!({ value: 'nested' }),
+    })
+
+    const result = await runCode(ctx, 'return tools.echo({ value: "nested" })', { agent })
+
+    expect(result.isError).toBe(false)
+    expect(events.filter(event => {
+      const data = event.data as { callId?: string }
+      return data.callId === 'call-1:code:1'
+    })).toEqual([
+      {
+        type: 'tool/policy-result',
+        data: {
+          callId: 'call-1:code:1', rootCallId: 'call-1', name: 'echo',
+          outcome: 'allowed', source: 'pre-execute',
+        },
+      },
+      {
+        type: 'tool/body-start',
+        data: { callId: 'call-1:code:1', rootCallId: 'call-1', name: 'echo' },
+      },
+      {
+        type: 'tool/body-end',
+        data: {
+          callId: 'call-1:code:1', rootCallId: 'call-1', name: 'echo',
+          outcome: 'returned', aborted: false,
+        },
+      },
+    ])
+    const nestedTypes = events.filter(event => {
+      const data = event.data as { subCallId?: string; callId?: string }
+      return data.subCallId === 'call-1:code:1' || data.callId === 'call-1:code:1'
+    }).map(event => event.type)
+    expect(nestedTypes).toEqual([
+      'tool/code-dispatch-start',
+      'tool/policy-result',
+      'tool/body-start',
+      'tool/body-end',
+      'tool/code-dispatch',
+    ])
+  })
+
   it('bridges tool calls, returns only the curated output, and logs one event per dispatch', async () => {
     const { ctx, runtime } = await setup({ mode: 'code' })
     const calls = registerEcho(ctx)
