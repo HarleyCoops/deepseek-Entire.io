@@ -92,7 +92,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }[T]
 ```
 
-来源：[`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:404`](../packages/core/session/src/types.ts)
+来源：[`packages/core/session/src/types.ts:336`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:343`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:372`](../packages/core/session/src/types.ts) · [`packages/core/session/src/types.ts:410`](../packages/core/session/src/types.ts)
 
 ## 事件
 
@@ -725,6 +725,34 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `tool/*`
 
+<a id="toolbody-end--log-only"></a>
+
+#### `tool/body-end` — log-only
+
+```ts persistence-catalog
+/**
+ * The invoked body promise fulfilled or rejected, before output
+ * validation, rendering, post-execute policy, and finalization.
+ */
+'tool/body-end': ToolBodyEndEventData
+```
+
+来源：[`packages/core/tools/src/types.ts:68`](../packages/core/tools/src/types.ts)
+
+<a id="toolbody-start--log-only"></a>
+
+#### `tool/body-start` — log-only
+
+```ts persistence-catalog
+/**
+ * A resolved tool body is about to be invoked. Around-dispatch wrappers
+ * that short-circuit and unknown tools produce no body start.
+ */
+'tool/body-start': ToolBodyStartEventData
+```
+
+来源：[`packages/core/tools/src/types.ts:63`](../packages/core/tools/src/types.ts)
+
 <a id="toolcall--log-only"></a>
 
 #### `tool/call` — log-only
@@ -765,7 +793,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'tool/code-dispatch': CodeDispatchEventData
 ```
 
-来源：[`packages/core/tools/src/types.ts:56`](../packages/core/tools/src/types.ts)
+来源：[`packages/core/tools/src/types.ts:98`](../packages/core/tools/src/types.ts)
 
 <a id="toolcode-dispatch-start--log-only"></a>
 
@@ -788,7 +816,22 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 'tool/code-dispatch-start': CodeDispatchStartEventData
 ```
 
-来源：[`packages/core/tools/src/types.ts:40`](../packages/core/tools/src/types.ts)
+来源：[`packages/core/tools/src/types.ts:82`](../packages/core/tools/src/types.ts)
+
+<a id="toolpolicy-result--log-only"></a>
+
+#### `tool/policy-result` — log-only
+
+```ts persistence-catalog
+/**
+ * The ordered pre-execute, optional approval, guard, and cancellation
+ * policy settled. The event precedes dispatch or the policy-owned result;
+ * it contains no reason or error text.
+ */
+'tool/policy-result': ToolPolicyResultEventData
+```
+
+来源：[`packages/core/tools/src/types.ts:58`](../packages/core/tools/src/types.ts)
 
 <a id="toolresult--surface"></a>
 

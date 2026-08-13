@@ -99,6 +99,28 @@ turn/end
 
 **模型可见即已记录。** 抵达模型请求的一切都必须能从日志重建，并由一项运行时不变量断言这一点。因此，新增一项模型可见输入就需要新增一个会话事件：扩展 `SessionEventMap` 并从日志渲染。
 
+<a id="trace-and-checkpoint-flow"></a>
+
+## 追踪与检查点流程
+
+会话日志也是工具追踪的唯一真源。根级 `tool/call` 或嵌套 Code Mode 分派按调用身份与 `tool/policy-result`、需要回答时既有的 `approval/asked` 和 `approval/decided` 对、`tool/body-start`、`tool/body-end` 以及最终结果连接。事件时间戳无需第二条追踪流，就能给出策略等待、主体和总时长；被拒绝或取消的调用没有主体事件。`tool/body-end` 只记录已调用主体是返回还是抛出，以及是否中止；经过验证和 post-execute 策略后，`tool/result` 仍是面向模型结果的权威记录。
+
+```mermaid
+flowchart LR
+  runtime["Agent loop and tool registry"] -->|append committed facts| log["Canonical SessionEvent log"]
+  log --> web["Web Chat and Trajectory"]
+  log --> sdk["TypeScript and Python SDK session events"]
+  log --> bridge["Dormant Entire bridge"]
+  marker["Exact clone-local Entire marker"] -->|activates| bridge
+  bridge --> sidecar["Bounded normalized JSONL sidecar"]
+  bridge --> hooks["entire hooks dsh lifecycle calls"]
+  sidecar --> adapter["Trusted entire-agent-dsh adapter"]
+  hooks --> adapter
+  adapter --> checkpoint["Entire checkpoint refs and optional private remote"]
+```
+
+Chat 与 Trajectory 从 `session/event` 渲染，SDK 则通过易用的工具追踪筛选暴露同一批通知。可选的 Entire bridge 是休眠的基础组合包观察器：只有克隆本地精确匹配的 `.entire/dsh-hooks.json` 标记才会激活伴随文件写入和使用固定参数的生命周期钩子。伴随文件投影真实提示词、已提交的 assistant 内容与用量、根级/嵌套工具事实、压缩以及父子谱系；它不会解析原生持久化产物，也不会建立另一条权威流。钩子与导出失败只产生诊断，不能改变模型请求或工具结果。设置、捕获边界与当前可用性见 [Entire 检查点指南](user/guide/entire.md)。
+
 ## 能力 seam
 
 一个 **seam** 是一项可替换能力，包含三种角色：声明接口的 **Service Definition**、实现它的 **Service Provider**，以及使用它的 **Consumer**（通常是面向模型的工具）。一个包可以合并承担多个角色，但单一角色本身不是 seam；添加一项能力意味着把三者一并设计（[能力图](capability-seams.md)）。

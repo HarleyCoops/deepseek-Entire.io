@@ -34,6 +34,12 @@ pnpm run build
 pnpm dsh web
 ```
 
+## Inspect agent traces
+
+Harness records each session as a canonical, append-only `SessionEvent` log. The log includes committed prompts and assistant messages, usage, compaction and lineage, plus root and nested tool calls/results, policy outcomes, approval decisions, and tool-body start/end outcomes. The Web UI can show this chain directly; the [architecture guide](docs/architecture.md#trace-and-checkpoint-flow) explains its ownership.
+
+[Entire checkpoints](docs/user/guide/entire.md) are an optional export of those committed facts. The integration is dormant until a trusted `entire-agent-dsh` adapter installs the clone-local marker, and it does not add model context or consume model tokens.
+
 ## Community and support
 
 - Feel free to submit feedback or bug reports through [GitHub Discussions](https://github.com/deepseek-ai/deepseek-harness/discussions).
