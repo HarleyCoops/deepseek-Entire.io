@@ -66,11 +66,11 @@ describe('EntireSidecarStorage', () => {
     second.append({ type: 'child', index: 1 })
     await Promise.all([first.drain(), second.drain()])
 
-    expect((await readFile(first.paths.sidecarPath, 'utf8')).trim().split('\n').map(JSON.parse)).toEqual([
+    expect((await readFile(first.paths.sidecarPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual([
       { type: 'first', body: 'secret transcript body' },
       { type: 'second', index: 2 },
     ])
-    expect((await readFile(second.paths.sidecarPath, 'utf8')).trim().split('\n').map(JSON.parse)).toEqual([
+    expect((await readFile(second.paths.sidecarPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line))).toEqual([
       { type: 'child', index: 1 },
     ])
     const referenceText = await readFile(first.paths.referencePath, 'utf8')

@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { createAssistantMessage, createToolResultMessage, createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import { CompactionId } from '@deepseek-ai/dsh-compaction'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import SubprocessRuntime from '@deepseek-ai/dsh-subprocess'
 import type { SubprocessHandle, SubprocessSpawnSpec, SubprocessTerminalHandle, SubprocessTerminalSpawnSpec } from '@deepseek-ai/dsh-subprocess'
@@ -133,8 +134,8 @@ describe('Entire bridge lifecycle', () => {
     session.append('turn/start', { turn: 1 })
     session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'internal' }], source: { kind: 'plugin', plugin: 'fixture' } }), { surfaceOp: 'append' })
     session.append('user/message', createUserMessage({ content: [{ type: 'text', text: 'human prompt' }], source: { kind: 'user' } }), { surfaceOp: 'append' })
-    session.append('compaction/start', { compactionId: 'compact-1', turn: 1 })
-    session.append('compaction/end', { compactionId: 'compact-1', turn: 1 })
+    session.append('compaction/start', { compactionId: CompactionId('compact-1'), turn: 1 })
+    session.append('compaction/end', { compactionId: CompactionId('compact-1'), turn: 1 })
 
     await bridge.dispose()
 

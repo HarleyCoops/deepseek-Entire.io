@@ -103,7 +103,7 @@ describe('dsh-base bundle', () => {
       ctx.loader.builtins.include = Include
       await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(join(dir, 'cordis.yml')).href } })
       await ctx.loader.await()
-      expect(ctx.loader.entries().some(entry => entry.options.id === 'entire-bridge')).toBe(true)
+      expect([...ctx.loader.entries()].some(entry => entry.options.id === 'entire-bridge')).toBe(true)
     } finally {
       await ctx.fiber.dispose()
       delete globals.__baseEntireBridge
