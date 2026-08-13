@@ -3,13 +3,19 @@
  * field must name a real, parseable patch list.
  */
 
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
 import { fileURLToPath } from 'node:url'
-import { resolve } from 'node:path'
+import { join, resolve } from 'node:path'
+import { pathToFileURL } from 'node:url'
+import { Context } from '@deepseek-ai/cordis'
+import Loader from '@deepseek-ai/cordis-plugin-loader'
+import Include from '@deepseek-ai/cordis-plugin-include'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
+import * as EntireBridge from '@deepseek-ai/dsh-entire-bridge'
 
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
@@ -32,6 +38,8 @@ describe('dsh-base bundle', () => {
     )
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
+    expect(rows.find(row => row.id === 'entire-bridge')).toMatchObject({ id: 'entire-bridge' })
+    expect(manifest.dependencies).toHaveProperty('@deepseek-ai/dsh-entire-bridge', 'workspace:^')
     expect(rows.find(row => row.id === 'session-telemetry-otel')?.config?.['mode']).toEqual({
       __jsExpr: "process.env.DSH_TELEMETRY_MODE || 'DISABLED'",
     })
@@ -73,5 +81,33 @@ describe('dsh-base bundle', () => {
     }
     // The platform layer folded into these rows: no separate patch file ships.
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
+  })
+
+  it('mounts the dormant Entire row through a real Loader tree', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-base-entire-loader-'))
+    const globals = globalThis as unknown as { __baseEntireBridge?: typeof EntireBridge }
+    globals.__baseEntireBridge = EntireBridge
+    writeFileSync(join(dir, 'sessions.mjs'), "export const apply = ctx => ctx.provide('sessions', { list: () => [] })\n")
+    writeFileSync(join(dir, 'subprocess.mjs'), "export const apply = ctx => ctx.provide('subprocess', {})\n")
+    writeFileSync(join(dir, 'entire.mjs'), "export const name = 'entire-bridge'; export const inject = ['sessions', 'subprocess']; export const apply = (ctx, config) => globalThis.__baseEntireBridge.apply(ctx, config)\n")
+    writeFileSync(join(dir, 'cordis.yml'), [
+      `- name: ${pathToFileURL(join(dir, 'sessions.mjs')).href}`,
+      `- name: ${pathToFileURL(join(dir, 'subprocess.mjs')).href}`,
+      '- id: entire-bridge',
+      `  name: ${pathToFileURL(join(dir, 'entire.mjs')).href}`,
+      '',
+    ].join('\n'))
+    const ctx = new Context()
+    try {
+      await ctx.plugin(Loader)
+      ctx.loader.builtins.include = Include
+      await ctx.loader.create({ name: 'cordis:include', config: { path: pathToFileURL(join(dir, 'cordis.yml')).href } })
+      await ctx.loader.await()
+      expect(ctx.loader.entries().some(entry => entry.options.id === 'entire-bridge')).toBe(true)
+    } finally {
+      await ctx.fiber.dispose()
+      delete globals.__baseEntireBridge
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

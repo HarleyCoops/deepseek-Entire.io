@@ -1028,6 +1028,9 @@ importers:
       '@deepseek-ai/dsh-credentials-local':
         specifier: workspace:^
         version: link:../../credentials/credentials-local
+      '@deepseek-ai/dsh-entire-bridge':
+        specifier: workspace:^
+        version: link:../../hooks/entire-bridge
       '@deepseek-ai/dsh-fs-local':
         specifier: workspace:^
         version: link:../../fs/fs-local
@@ -4588,6 +4591,40 @@ importers:
       '@deepseek-ai/dsh-tools':
         specifier: workspace:^
         version: link:../../core/tools
+
+  packages/hooks/entire-bridge:
+    dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-compaction':
+        specifier: workspace:^
+        version: link:../../compaction/compaction
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-subagent':
+        specifier: workspace:^
+        version: link:../../subagent/subagent
+      '@deepseek-ai/dsh-subprocess':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess
+      '@deepseek-ai/dsh-subprocess-local':
+        specifier: workspace:^
+        version: link:../../subprocess/subprocess-local
+      '@deepseek-ai/dsh-tools':
+        specifier: workspace:^
+        version: link:../../core/tools
+      '@deepseek-ai/dsh-user-approval':
+        specifier: workspace:^
+        version: link:../../interaction/user-approval
 
   packages/hooks/hook-protocol:
     devDependencies:
