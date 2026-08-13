@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 /** ToolCallTree-owned root/subcall markers and selection projection. */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, render } from '@testing-library/react'
+import { cleanup, fireEvent, render } from '@testing-library/react'
 import type { ConversationSnapshot, ToolResultNode } from '@deepseek-ai/dsh-client-runtime/client'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
@@ -77,5 +77,16 @@ describe('ToolCallTree', () => {
     expect(view.container.querySelector('[data-chat-call-id="parent:code:1"]')?.hasAttribute('data-selected')).toBe(false)
     expect(view.container.querySelector('[data-chat-call-id="parent:code:1:code:1"]')?.getAttribute('data-selected')).toBe('true')
     expect(nests).toHaveLength(2)
+  })
+
+  it('always exposes an exact-call View tool chain handoff', () => {
+    const child = root('parent:code:1', { name: 'read', argsRaw: '{}' })
+    const block = { ...root('parent', { name: 'run_code', argsRaw: '{}' }), subCalls: [child] }
+    const value = props(block)
+    const view = render(<ToolCallTree {...value} />)
+    const buttons = view.getAllByRole('button', { name: '查看工具链' })
+    expect(buttons).toHaveLength(2)
+    fireEvent.click(buttons[1]!)
+    expect(value.inspectCall).toHaveBeenCalledWith('parent:code:1')
   })
 })

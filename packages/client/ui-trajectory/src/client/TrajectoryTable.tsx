@@ -19,7 +19,7 @@ import type {
 import type {
   AssistantMetricDetail, TrajectoryCellKind, TrajectoryCellProps, TrajectorySourceBlock,
 } from './trajectory-record.ts'
-import { formatElapsedSeconds, trajectoryRecordId } from './trajectory-record.ts'
+import { formatDurationMillis, formatElapsedSeconds, trajectoryRecordId } from './trajectory-record.ts'
 import {
   groupTrajectoryVirtualRows, trajectoryVirtualRecordKey,
 } from './trajectory-virtual-rows.ts'
@@ -1448,6 +1448,32 @@ function MarkdownRecordContent({
 }
 
 function RecordTiming({ record }: { record: TableRecord }) {
+  const timing = record.cell.toolTiming
+  if (timing !== undefined) {
+    const outcome = (value: string | null, suffix?: string | boolean | null) => value === null
+      ? 'Unknown'
+      : suffix === null || suffix === undefined || suffix === false ? value : `${value} · ${suffix === true ? 'aborted' : suffix}`
+    return (
+      <dl className={css.overview}>
+        <div><dt>Total</dt><dd>{formatDurationMillis(timing.total.durationMs)}</dd></div>
+        <div><dt>Policy</dt><dd>{formatDurationMillis(timing.policy.durationMs)}</dd></div>
+        <div><dt>Policy outcome</dt><dd>{outcome(timing.policy.outcome, timing.policy.source)}</dd></div>
+        {timing.approval !== undefined && <>
+          <div><dt>Approval</dt><dd>{formatDurationMillis(timing.approval.durationMs)}</dd></div>
+          <div><dt>Approval outcome</dt><dd>{outcome(timing.approval.outcome)}</dd></div>
+        </>}
+        {timing.body !== undefined && <>
+          <div><dt>Body</dt><dd>{formatDurationMillis(timing.body.durationMs)}</dd></div>
+          <div>
+            <dt>Body outcome</dt>
+            <dd>{timing.body.outcome === null
+              ? 'Unknown'
+              : `${timing.body.outcome} · aborted: ${String(timing.body.aborted)}`}</dd>
+          </div>
+        </>}
+      </dl>
+    )
+  }
   return record.cell.kind === 'message' && record.cell.assistantMetrics !== undefined
     ? <AssistantTimingPanel metrics={record.cell.assistantMetrics} />
     : (

@@ -2,6 +2,7 @@
 
 import type { HTMLAttributes } from 'react'
 import type { ConversationPromptSnapshot } from '@deepseek-ai/dsh-client-runtime/client'
+import type { TrajectoryToolTiming } from './trajectory-contract.ts'
 
 /** Closed set of trajectory record kinds. */
 export type TrajectoryCellKind =
@@ -73,6 +74,8 @@ export interface TrajectoryCellProps extends HTMLAttributes<HTMLDivElement> {
   assistantMetrics?: AssistantMetricDetail
   /** Tool-only result summary paired with the call in the same record. */
   result?: string
+  /** Complete event-sourced lifecycle for this exact Tool call. */
+  toolTiming?: TrajectoryToolTiming
   /** Raw Markdown source converted into the tool-result summary at its consumer. */
   resultPreviewMarkdown?: string
   /** Tool call id used to link message source blocks to tool records. */
