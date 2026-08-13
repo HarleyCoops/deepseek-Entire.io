@@ -13,6 +13,8 @@ The harness ships a Web UI with two views over the same trace:
 - **Chat** — the conversation, with each assistant message and the tool calls it made rendered inline, so you see *what the agent did* as it happened.
 - **Trajectory** — a structured, filterable rendering of the session's tool trace: every root tool call with its nested Code Mode sub-calls, policy evaluation, approval decision, body timing, and final result, laid out as a tree with durations. This is the *audit view* — where you go to answer "what exactly did it run, in what order, what did it see, and why."
 
+![The running Web UI showing a live session and its tool trace](assets/webui-session-trace.png)
+
 Both views render from the same canonical `session/event` stream; there is no second source of truth.
 
 ## The canonical session trace
