@@ -79,6 +79,8 @@ dsh web --help
 
 通过 `dsh plugin --profile <name> add <package-or-git-spec>` 安装外部插件组合包。安装的包拥有其依赖，并贡献其声明的 `cordis.patch.yml` 层。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
+本克隆把 J-Space 认知组合包钉在 `wxxb789/dsh-j-space` 提交 `43f15f370f7d1505aed142aecd393f35110763bb`。用 `dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb` 装进 web profile，重启该 profile，再用 `dsh --profile web --dump-config` 确认 `dsh-j-space` 配置行。同一套 skill（技能）树已入库 [`.agents/skills/j-space`](../../../.agents/skills/j-space/SKILL.md)，因此把源码 checkout 当作 workspace 时，可通过 project-agents 发现暴露 `/j-space`；钉死点、overlay 以及随附组合包保持不变的原因，见 [J-Space Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md) 与 [`examples/web-jspace/overlay.yml`](../../../examples/web-jspace/overlay.yml)。
+
 ## 源码执行
 
 请在仓库根目录中，于全新 checkout 之后及产物需要更新时单独运行 `pnpm run build`，然后使用 `pnpm dsh <args...>`。`package.json` 中的脚本不会构建，而是通过 `node --import tsx/esm` 启动 `apps/cli/src/bin.ts`，并转发所有参数。Typert Host 产物缺失时，profile 启动会因不含构建指引的模块解析错误而失败。这些 Host 产物存在后，如果前端或 Client plugin 组合包缺失，启动会失败并提示运行 `pnpm run build`。启动器不会检查产物是否为最新，因此已有的陈旧组合包可能继续运行旧版浏览器代码，直至重新构建。该进程会继承启动环境；当支持环境代理的 Node 版本必须遵循 `HTTP_PROXY` 和 `HTTPS_PROXY` 时，请设置 `NODE_USE_ENV_PROXY=1`。安装形式会直接启动构建后的 `apps/cli/lib/bin.js`，不会重新构建仓库。

@@ -1,0 +1,13 @@
+# Profile overlay for the pinned dsh-j-space bundle.
+# After `dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb`,
+# the installed bundle's own cordis.patch.yml already inserts this row.
+# Copy into `$DSH_HOME/profiles/<name>/cordis.patch.yml`, or pass
+# `dsh --profile web --patch examples/web-jspace/overlay.yml`, only to restate
+# or override `autoActivate`. The row resolves only after the package is
+# installed into that profile; a missing package fails at load.
+
+- insert:
+    - id: dsh-j-space
+      name: dsh-j-space
+      config:
+        autoActivate: true
