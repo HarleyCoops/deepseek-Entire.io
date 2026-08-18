@@ -1,13 +1,22 @@
-# Profile overlay for the pinned dsh-j-space bundle.
-# After `dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb`,
-# the installed bundle's own cordis.patch.yml already inserts this row.
-# Copy into `$DSH_HOME/profiles/<name>/cordis.patch.yml`, or pass
-# `dsh --profile web --patch examples/web-jspace/overlay.yml`, only to restate
-# or override `autoActivate`. The row resolves only after the package is
-# installed into that profile; a missing package fails at load.
-
-- insert:
-    - id: dsh-j-space
-      name: dsh-j-space
-      config:
-        autoActivate: true
+# Optional J-Space plugin overlay — not the source of truth for this clone.
+#
+# The files that match the 2026-08-18 wa-pi5 session are the Tiger V3.6
+# skill at .agents/skills/j-space/. A running dsh also needs that
+# directory at ${DSH_HOME:-~/.dsh}/skills/j-space (copy or symlink).
+# Copying into this git clone alone does not load the skill.
+#
+# This overlay only records the optional plugin-add path. It is not a
+# cordis.yml leaf, so verify-cordis-config does not treat it as a
+# composition entry. Merge it only when you also want the wxxb789
+# plugin wrapper (Node controller + extra tools). Do not add that
+# plugin to shipped PROFILE_TEMPLATES or to @deepseek-ai/dsh-web-app.
+#
+#   dsh plugin --profile web add github:wxxb789/dsh-j-space#main
+#
+# Then insert the plugin id into the chosen profile (for example
+# $DSH_HOME/profiles/web/cordis.yml) using the same list item as below.
+plugins:
+  - id: plugin:github:wxxb789/dsh-j-space#main
+    name: j-space
+    config:
+      workspace: ${{ env.DSH_JSPACE_WORKSPACE || '' }}

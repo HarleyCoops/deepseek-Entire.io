@@ -79,7 +79,12 @@ dsh web --help
 
 通过 `dsh plugin --profile <name> add <package-or-git-spec>` 安装外部插件组合包。安装的包拥有其依赖，并贡献其声明的 `cordis.patch.yml` 层。CLI 还随附 `@deepseek-ai/dsh-mcp-client` 作为供 patch 层使用的依赖，但默认不启用 MCP 服务器，因为每条服务器命令都是 agent（智能体）沙箱之外的受信任可执行代码。
 
-本克隆把 J-Space 认知组合包钉在 `wxxb789/dsh-j-space` 提交 `43f15f370f7d1505aed142aecd393f35110763bb`。用 `dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb` 装进 web profile，重启该 profile，再用 `dsh --profile web --dump-config` 确认 `dsh-j-space` 配置行。同一套 skill（技能）树已入库 [`.agents/skills/j-space`](../../../.agents/skills/j-space/SKILL.md)，因此把源码 checkout 当作 workspace 时，可通过 project-agents 发现暴露 `/j-space`；钉死点、overlay 以及随附组合包保持不变的原因，见 [J-Space Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md) 与 [`examples/web-jspace/overlay.yml`](../../../examples/web-jspace/overlay.yml)。
+本 clone 把 J-Space Cognition Suite V3.6 的 `j-space/` skill（技能）纳入 [`.agents/skills/j-space`](../../../.agents/skills/j-space/SKILL.md)，来源是 https://github.com/Tiger3807861189/J-Space-Cognition-Suite-V3.6 提交 `bd319d8a86d176ee12adb7bba5c3dae716a768a0`。正在运行的 `dsh` 从 `${DSH_HOME:-~/.dsh}/skills` 加载用户 skill；请将该目录复制或符号链接到 `${DSH_HOME:-~/.dsh}/skills/j-space`。只把文件放在本 git clone 中，在会话工作区是另一个项目时并不会加载该 skill。当本 checkout 就是工作区时，project-agents 发现仍会暴露 `/j-space`。[J-Space Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md) 记录钉死点以及 [`examples/web-jspace/overlay.yml`](../../../examples/web-jspace/overlay.yml) 中的可选插件 overlay。可选插件安装命令是 `dsh plugin --profile web add github:wxxb789/dsh-j-space#main`；随附组合包保持不变。
+
+```sh
+mkdir -p "${DSH_HOME:-$HOME/.dsh}/skills"
+cp -a .agents/skills/j-space "${DSH_HOME:-$HOME/.dsh}/skills/j-space"
+```
 
 ## 源码执行
 

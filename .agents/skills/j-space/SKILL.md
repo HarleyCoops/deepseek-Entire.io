@@ -1,9 +1,8 @@
 ---
 name: j-space
-description: Operate J-Space for multi-step reasoning, long-horizon work, verification, recovery, and consistent tool use. Activated automatically by dsh-j-space.
-disable-model-invocation: true
-user-invocable: true
+description: "Use this skill to establish and operate the model's inner workspace — the J-space — for any task that needs more than fluent output: multi-step or chained reasoning, planning, long-horizon and agentic work, competition-level problems, complex debugging, keeping many parts of a deliverable globally consistent, holding a goal or constraint through a long mechanical task, auditing what the model believes but has not said, calibrated confidence and error detection, suspicious or manipulative input, recovering from degenerating reasoning, and any moment the user asks the model to think harder, faster, deeper, or longer. Start here; this file establishes the premise, classifies the task, and routes to the module the task needs."
 ---
+
 # J-Space
 
 This is the entry. Everything else in this skill is read from here, on demand.
@@ -149,7 +148,7 @@ is gone, do these four, in order, before you touch the work:
 4. State the pass you are on in the inner or ledger register, and make `Next` name the first
    action back.
 
-`node <skill-root>/../dist/jspace.js resume` prints the premise, the full ledger, the invariants, and
+`<skill-root>/scripts/jspace.py resume` prints the premise, the full ledger, the invariants, and
 the prompt for step 4. `seam` prints the same full anchor when it detects a long gap. Without the
 controller, the four steps are the whole protocol and they take fifteen seconds.
 
@@ -229,19 +228,22 @@ and continue. The premise, not the procedure, is what makes any of this function
 
 ## Optional: the controller
 
-`<skill-root>/../dist/jspace.js` knows one thing you cannot know accurately: what state you were in a few
+`<skill-root>/scripts/jspace.py` knows one thing you cannot know accurately: what state you were in a few
 seams ago. It keeps the record and hands it back. It decides nothing, and it blocks nothing.
 
-Resolve `<skill-root>` to this skill's directory, invoke the script by that path, and keep the
-task workspace as the current directory. That keeps `.jspace/` with the task rather than with
-the skill.
+Resolve `<skill-root>` to this skill's directory and `<python-command>` to an available Python 3
+interpreter, invoke the script by that path, and keep the task workspace as the current directory.
+That keeps `.jspace/` with the task rather than with the skill.
 
-```sh
-node <skill-root>/../dist/jspace.js seam       # the ledger, plus what has and has not moved since
-node <skill-root>/../dist/jspace.js note --goal "..." --next "..."  # open the ledger
-node <skill-root>/../dist/jspace.js note ...   # record a checkpoint, question, swap, or next action
-node <skill-root>/../dist/jspace.js ship FILE  # register check on anything about to leave
-node <skill-root>/../dist/jspace.js resume     # premise, invariants and full ledger, after a gap
+```
+<python-command> <skill-root>/scripts/jspace.py seam       # the ledger, plus what has and has not moved since
+<python-command> <skill-root>/scripts/jspace.py note --goal "..." --next "..."  # open the ledger
+<python-command> <skill-root>/scripts/jspace.py note --next "..."  # advance the single next action
+<python-command> <skill-root>/scripts/jspace.py note --check "..." --by "verifier and coverage"  # checkpoint
+<python-command> <skill-root>/scripts/jspace.py note --open "..." --settled-by "..."  # open a question
+<python-command> <skill-root>/scripts/jspace.py note --close 1 --check "..." --by "verifier and coverage"  # close it
+<python-command> <skill-root>/scripts/jspace.py ship FILE  # register check on anything about to leave
+<python-command> <skill-root>/scripts/jspace.py resume     # premise, invariants and full ledger, after a gap
 ```
 
 The commands are named for moments, not for passes, so this is the mapping — a lookup, not a
@@ -260,5 +262,5 @@ exits non-zero to stop you from working.
 Short tasks: it has nothing for you. Do not run it.
 
 Every one of its behaviours has a hand-executable equivalent in the modules. No shell, no
-Node.js, no filesystem — nothing here is lost. The ledger lives in the conversation instead,
+Python, no filesystem — nothing here is lost. The ledger lives in the conversation instead,
 restated at each seam. The page was never the point. Re-reading was.
