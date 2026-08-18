@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md
+2026-08-18-jspace-skill-on-this-clone.md: 67cecad3aff237089d3cf1e85883ed333ce8fbff
+2026-08-18-jspace-skill-on-this-clone.zh.md: e5abceb36675140aae2a3bc02e2b80bc45fede56
