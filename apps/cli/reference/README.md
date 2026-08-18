@@ -79,7 +79,12 @@ Session telemetry stays local by default. `DSH_TELEMETRY_MODE=FULL` streams ever
 
 Install external plugin bundles through `dsh plugin --profile <name> add <package-or-git-spec>`. The installed package owns its dependencies and contributes its declared `cordis.patch.yml` layer. The CLI also ships `@deepseek-ai/dsh-mcp-client` as a dependency for patch layers, but no MCP server is enabled by default because each server command is trusted executable code outside the agent sandbox.
 
-This clone pins the J-Space cognition bundle at `wxxb789/dsh-j-space` commit `43f15f370f7d1505aed142aecd393f35110763bb`. Install it into the web profile with `dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb`, restart the profile, and confirm the `dsh-j-space` row with `dsh --profile web --dump-config`. The same skill tree is vendored at [`.agents/skills/j-space`](../../../.agents/skills/j-space/SKILL.md) so a source checkout used as the workspace exposes `/j-space` through project-agents discovery; [the J-Space Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md) records the pin, the overlay at [`examples/web-jspace/overlay.yml`](../../../examples/web-jspace/overlay.yml), and why the shipped bundles stay unchanged.
+This clone vendors the J-Space Cognition Suite V3.6 `j-space/` skill at [`.agents/skills/j-space`](../../../.agents/skills/j-space/SKILL.md) from https://github.com/Tiger3807861189/J-Space-Cognition-Suite-V3.6 commit `bd319d8a86d176ee12adb7bba5c3dae716a768a0`. A running `dsh` loads user skills from `${DSH_HOME:-~/.dsh}/skills`; copy or symlink that directory to `${DSH_HOME:-~/.dsh}/skills/j-space`. Having the files only in this git clone does not load the skill when the session workspace is another project. When this checkout is the workspace, project-agents discovery still exposes `/j-space`. [The J-Space Agent Note](../../../.agents/notes/implemented/feature/2026-08-18-jspace-skill-on-this-clone.md) records the pin and the optional plugin overlay at [`examples/web-jspace/overlay.yml`](../../../examples/web-jspace/overlay.yml). The optional plugin install is `dsh plugin --profile web add github:wxxb789/dsh-j-space#main`; shipped bundles stay unchanged.
+
+```sh
+mkdir -p "${DSH_HOME:-$HOME/.dsh}/skills"
+cp -a .agents/skills/j-space "${DSH_HOME:-$HOME/.dsh}/skills/j-space"
+```
 
 ## Source execution
 

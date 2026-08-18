@@ -1,11 +1,9 @@
 {
-  "name": "j-space",
-  "plugin": "https://github.com/wxxb789/dsh-j-space",
-  "pluginCommit": "43f15f370f7d1505aed142aecd393f35110763bb",
-  "pluginDate": "2026-08-18",
-  "install": "dsh plugin --profile web add github:wxxb789/dsh-j-space#43f15f370f7d1505aed142aecd393f35110763bb",
-  "upstreamSuite": "https://github.com/Tiger3807861189/J-Space-Cognition-Suite-V3.6",
-  "upstreamSuiteCommit": "885dc513702cc884f0b4fa07d24a27b2df5a1daf",
-  "controller": ".agents/skills/dist/jspace.js",
-  "controllerPathFromSkillRoot": "../dist/jspace.js"
+  "kind": "vendored-skill",
+  "upstream": "https://github.com/Tiger3807861189/J-Space-Cognition-Suite-V3.6",
+  "commit": "bd319d8a86d176ee12adb7bba5c3dae716a768a0",
+  "upstreamPath": "j-space/",
+  "localPath": ".agents/skills/j-space/",
+  "runtimeNote": "DSH user-skill discovery reads ${DSH_HOME:-~/.dsh}/skills/<name>/SKILL.md. Copy or symlink this directory there. Having the files only in this git clone does not load the skill when the session workspace is another project.",
+  "optionalPlugin": "dsh plugin --profile web add github:wxxb789/dsh-j-space#main"
 }
