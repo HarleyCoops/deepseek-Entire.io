@@ -34,7 +34,7 @@ pnpm dsh --profile workspace-alberta --dump-default-config
 
 The Composio row stays disabled until `COMPOSIO_API_KEY` or `COMPOSIO_MCP_URL` is set. OAuth for Composio tools is Composio's own Connect / session flow; this bundle only mounts the official MCP client.
 
-`session-telemetry-otel` is disabled in this layer, so this profile does not export to `harness-telemetry.deepseeksvc.com` even when `DSH_TELEMETRY_MODE` is set. This repository has no `dshdesktopaction` or `.cn` desktop update URLs.
+`session-telemetry-otel` is disabled in this layer, so this profile does not export to `harness-telemetry.deepseeksvc.com` even when `DSH_TELEMETRY_MODE` is set. This repository has no `dshdesktop.cn` or Electron desktop update URLs.
 
 The glue plugin requires `webServer` (always present because the template includes `dsh-web-app`) and replaces `<title>DeepSeek Harness</title>` with `{productTitle}` (default `WorkspaceAlberta`) so the shared `DocumentTitle` inherits it. MIT and upstream DeepSeek Harness notices in the source tree stay.
 

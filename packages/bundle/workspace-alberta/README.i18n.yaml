@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/bundle/workspace-alberta/README.md
-README.md: 078b17bf027828c198da673ea8a4e7717372ac79
-README.zh.md: 2fc050d23e36a5f47a5f30704d3708cad503ca44
+README.md: d76ef9aae4b5db14371d7eb6db06503a50fc182a
+README.zh.md: 10ad945f2300d495fe1d0da9050557f174adf6c0

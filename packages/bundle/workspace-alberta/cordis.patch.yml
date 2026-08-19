@@ -44,7 +44,7 @@
 
 # Official DSH OTLP to harness-telemetry.deepseeksvc.com stays off for this
 # profile even when DSH_TELEMETRY_MODE is set. There is no Electron /
-# dshdesktopaction update ping in this harness.
+# dshdesktop.cn update ping in this harness.
 - id: session-telemetry-otel
   disabled: true
 
@@ -78,7 +78,7 @@
     # Connect (x-consumer-api-key) and session (x-api-key) hooks.
     - id: mcp-composio
       name: '@deepseek-ai/dsh-mcp-client'
-      disabled: !!js !(process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_MCP_URL)
+      disabled: !!js "process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_MCP_URL ? false : true"
       config:
         serverName: composio
         transport: streamable-http

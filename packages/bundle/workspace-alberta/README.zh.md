@@ -34,7 +34,7 @@ pnpm dsh --profile workspace-alberta --dump-default-config
 
 在设置 `COMPOSIO_API_KEY` 或 `COMPOSIO_MCP_URL` 之前，Composio 行保持禁用。Composio 工具的 OAuth 由 Composio 自己的 Connect / session 流程完成；本组合包只挂载官方 MCP 客户端。
 
-本层禁用 `session-telemetry-otel`，因此即使设置了 `DSH_TELEMETRY_MODE`，本 profile 也不会向 `harness-telemetry.deepseeksvc.com` 导出。本仓库没有 `dshdesktopaction` 或 `.cn` 桌面更新 URL。
+本层禁用 `session-telemetry-otel`，因此即使设置了 `DSH_TELEMETRY_MODE`，本 profile 也不会向 `harness-telemetry.deepseeksvc.com` 导出。本仓库没有 `dshdesktop.cn` 或 Electron 桌面更新 URL。
 
 粘合插件需要 `webServer`（模板包含 `dsh-web-app`，因此始终存在），并把 `<title>DeepSeek Harness</title>` 替换为 `{productTitle}`（默认 `WorkspaceAlberta`），使共享的 `DocumentTitle` 继承该标题。源码树中的 MIT 与上游 DeepSeek Harness 声明保持不变。
 
