@@ -721,6 +721,22 @@ describe.skipIf(!existsSync(dshBin))('dsh BUILT bin (node lib/bin.js, no tsx)', 
       expect(stdout).not.toMatch(/name: '@deepseek-ai\/dsh-client-/)
     }, 30_000)
 
+    it('prints the workspace-alberta profile with Cohere and the hosted MCP URL', async () => {
+      const { stdout, code, stderr } = await runBuiltBin(
+        ['--profile', 'workspace-alberta', '--dump-default-config'],
+        { DSH_HOME: home },
+      )
+      expect(code).toBe(0)
+      expect(stderr).toBe('')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-workspace-alberta'")
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-mcp-client'")
+      expect(stdout).toContain('https://elbowsupknivesout.warreandvavasour.com/mcp')
+      expect(stdout).toContain('https://connect.composio.dev/mcp')
+      expect(stdout).toContain('command-a-plus-05-2026')
+      expect(stdout).toContain('https://api.cohere.ai/compatibility/v1')
+      expect(stdout).toContain("name: '@deepseek-ai/dsh-host-webserver'")
+    }, 30_000)
+
     it('composes the profile user layer and a --patch overlay in order', async () => {
       // Auto-init the web profile first, then write its user layer.
       const init = await runBuiltBin(['--profile', 'web', '--dump-default-config'], { DSH_HOME: home })

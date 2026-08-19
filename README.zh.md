@@ -17,6 +17,21 @@ Harness 附带一个 Web UI，用两种视图呈现同一条追踪：
 
 两个视图都从同一条规范的 `session/event` 流渲染；不存在第二个事实来源。
 
+## WorkspaceAlberta 产品 profile
+
+本 checkout 在官方 DeepSeek Harness 上随附内置 `workspace-alberta` profile：同一套 `dsh` 启动器、插件系统、Web UI 与 [`dsh-mcp-client`](packages/mcp/mcp-client/README.md)。它不是 Electron 桌面应用，也不会用玩具客户端替换 harness。Raspberry Pi 硬件、Desktop Electron、gbrain 与 j-space skill（技能）保持不变。
+
+在本仓库中，完成 `pnpm install` 与 `pnpm run build` 后：
+
+```sh
+pnpm dsh --profile workspace-alberta
+pnpm dsh --profile workspace-alberta --dump-default-config
+```
+
+首次使用会按随附模板写入 `$DSH_HOME/profiles/workspace-alberta/{package.json,cordis.patch.yml}`（`@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、`@deepseek-ai/dsh-workspace-alberta`）。组合的权威来源是 [`packages/bundle/workspace-alberta/cordis.patch.yml`](packages/bundle/workspace-alberta/cordis.patch.yml)。现场 `~/.dsh` 安装（Pi）必须运行本 fork 的 `dsh`，才能解析该内置组合包；不要另造一套运行时。
+
+该 profile 的默认值：Cohere Command A+（`COHERE_API_KEY`，Compatibility API `https://api.cohere.ai/compatibility/v1`）、官方 streamable-http MCP `https://elbowsupknivesout.warreandvavasour.com/mcp`（用 `WORKSPACE_ALBERTA_MCP_URL` 覆盖；本地回退是 [HarleyCoops/WorkspaceAlberta](https://github.com/HarleyCoops/WorkspaceAlberta) 的 `python mcp-servers/canadabuys/server.py`），以及由 `COMPOSIO_API_KEY` / `COMPOSIO_MCP_URL` 控制的 Composio MCP 行。不提交任何 API key。细节见 [`packages/bundle/workspace-alberta/README.md`](packages/bundle/workspace-alberta/README.md)。
+
 ## 规范会话追踪
 
 每个会话一条日志，仅追加，每条记录带有序号与时间戳。它是以下内容的唯一事实来源：

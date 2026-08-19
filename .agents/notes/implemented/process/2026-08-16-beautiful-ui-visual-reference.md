@@ -6,7 +6,7 @@ English | [中文](2026-08-16-beautiful-ui-visual-reference.zh.md)
 
 ## Problem
 
-Agents and contributors who change Web chat presentation, or a mounted TUI chat frontend, have no recorded visual and interaction catalog for thinking rows, tool cards, approval and ask-user prompts, streaming text, and the prompt composer. WorkspaceAlberta (`HarleyCoops/workspaceAlbertaSetup`) is a sister harness that needs the same catalog so the two surfaces stay aligned.
+Agents and contributors who change Web chat presentation, or a mounted TUI chat frontend, have no recorded visual and interaction catalog for thinking rows, tool cards, approval and ask-user prompts, streaming text, and the prompt composer. WorkspaceAlberta is this clone's `workspace-alberta` product profile on official DeepSeek Harness and needs the same catalog so Web chat stays aligned.
 
 ## Decision
 
@@ -26,7 +26,7 @@ Root `AGENTS.md` carries the one-to-three-line standing order. `packages/client/
 
 **Restyle Web to match the catalog in the same change.** Rejected: recording the reference is a documentation decision. Restyling is a separate product change and is not implied by adopting the catalog as a reference.
 
-**Give each harness its own visual catalog.** Rejected: alignment between DeepSeek Harness and WorkspaceAlberta is the reason to share one catalog.
+**Give each harness its own visual catalog.** Rejected: alignment between DeepSeek Harness and the WorkspaceAlberta profile is the reason to share one catalog.
 
 **Put the home in [docs/web-styling.md](../../../../docs/web-styling.md).** Rejected: that page owns token and CSS-module rules, not the cross-surface primitive catalog.
 

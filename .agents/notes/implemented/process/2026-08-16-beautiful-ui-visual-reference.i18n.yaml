@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-16-beautiful-ui-visual-reference.md
-2026-08-16-beautiful-ui-visual-reference.md: 059ea78e9e23f95abf74335cd5cb60273ab116dd
-2026-08-16-beautiful-ui-visual-reference.zh.md: a1bc989eff5afb9e3a451222f9f12e1d6d1cf8ed
+2026-08-16-beautiful-ui-visual-reference.md: a6fe3ae717084433fa61921f6a489f22f43f243b
+2026-08-16-beautiful-ui-visual-reference.zh.md: 3eb3b9253a8ca26a7ba8014c7e6c0473d685d731

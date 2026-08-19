@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-更改 Web 对话展示、或已挂载的 TUI 对话前端的 agent（智能体）与贡献者，没有一份已记录的视觉与交互目录，可用于思考行、工具卡片、审批与 ask-user 提示、流式文本和提示词输入栏。WorkspaceAlberta（`HarleyCoops/workspaceAlbertaSetup`）是姊妹 harness，需要同一份目录，使两个界面保持对齐。
+更改 Web 对话展示、或已挂载的 TUI 对话前端的 agent（智能体）与贡献者，没有一份已记录的视觉与交互目录，可用于思考行、工具卡片、审批与 ask-user 提示、流式文本和提示词输入栏。WorkspaceAlberta 是本 clone 在官方 DeepSeek Harness 上的 `workspace-alberta` 产品 profile，需要同一份目录，使 Web 对话保持对齐。
 
 ## 决策
 
@@ -26,7 +26,7 @@ WorkspaceAlberta 使用同一份参考。Web 是已交付的交互界面；已�
 
 **在同一次更改中把 Web 重绘成与该目录一致。** 不予采纳：记录参考是文档决策。重绘是单独的产品更改，并不因把该目录采纳为参考而被隐含。
 
-**让每个 harness 各自拥有视觉目录。** 不予采纳：DeepSeek Harness 与 WorkspaceAlberta 对齐，正是共享一份目录的原因。
+**让每个 harness 各自拥有视觉目录。** 不予采纳：DeepSeek Harness 与 WorkspaceAlberta profile 对齐，正是共享一份目录的原因。
 
 **把归属文档放在 [docs/web-styling.md](../../../../docs/web-styling.md)。** 不予采纳：该页拥有 token 与 CSS Module 规则，而不是跨界面的基元目录。
 

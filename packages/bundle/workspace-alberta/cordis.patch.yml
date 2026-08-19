@@ -1,0 +1,94 @@
+# The dsh-workspace-alberta bundle patch: the WorkspaceAlberta product
+# profile over dsh-base + dsh-web-app. Applied after those layers; rows
+# here override base/web-app rows by id, with the profile's own
+# cordis.patch.yml and any --patch overlays still to come.
+#
+# A patch replaces the targeted row's whole `config`, so each override
+# restates every key it owns.
+#
+# This is official DeepSeek Harness composition, not a second runtime and
+# not an Electron desktop. Copyable files for a dsh install of this fork:
+#   packages/bundle/workspace-alberta/cordis.patch.yml
+#   $DSH_HOME/profiles/workspace-alberta/package.json  (auto-written on first
+#     `dsh --profile workspace-alberta`; bundles are dsh-base, dsh-web-app,
+#     dsh-workspace-alberta)
+#   $DSH_HOME/profiles/workspace-alberta/cordis.patch.yml  (empty user layer)
+
+# Cohere Command A+ is the default Canadian OpenAI-compatible provider.
+# The key is a credential reference (COHERE_API_KEY); nothing is inlined.
+# baseURL is the documented Compatibility API, not api.deepseek.com.
+- id: agent-default-model
+  config:
+    provider: cohere
+    model: command-a-plus-05-2026
+
+- id: llm-pi-ai
+  config:
+    providers:
+      cohere:
+        displayName: Cohere
+        apiKeyEnv: COHERE_API_KEY
+        api: openai-completions
+        baseURL: https://api.cohere.ai/compatibility/v1
+        models:
+          - id: command-a-plus-05-2026
+            name: Command A+
+            contextWindow: 128000
+            maxTokens: 64000
+            input: [text, image]
+
+# Skip DeepSeek onboarding and do not default the model adapter to
+# api.deepseek.com. MIT/upstream notices in the source tree stay.
+- id: llm-deepseek
+  disabled: true
+
+# Official DSH OTLP to harness-telemetry.deepseeksvc.com stays off for this
+# profile even when DSH_TELEMETRY_MODE is set. There is no Electron /
+# dshdesktopaction update ping in this harness.
+- id: session-telemetry-otel
+  disabled: true
+
+- id: system-prompt
+  config:
+    includeHarnessIdentity: false
+    persona: >-
+      You are WorkspaceAlberta, a coding agent for the Warre & Vavasour
+      WorkspaceAlberta box, running on official DeepSeek Harness. You are
+      powered by the {{model}} model. Your working directory is {{cwd}}.
+      Use WorkspaceAlberta MCP tools for CanadaBuys procurement data when
+      they are available.
+
+- insert:
+    # Official streamable-http MCP client. Default is the hosted CanadaBuys
+    # server. Local fallback from HarleyCoops/WorkspaceAlberta (no invented
+    # CanadaBuys credentials): set WORKSPACE_ALBERTA_MCP_URL to that process
+    # (python mcp-servers/canadabuys/server.py) and do not commit keys.
+    - id: mcp-workspace-alberta
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        serverName: workspacealberta
+        transport: streamable-http
+        url: !!js process.env.WORKSPACE_ALBERTA_MCP_URL ?? 'https://elbowsupknivesout.warreandvavasour.com/mcp'
+        failOnStartupError: false
+
+    # Composio as a first-class MCP row. Disabled until COMPOSIO_API_KEY or
+    # COMPOSIO_MCP_URL is set (env / $DSH_HOME/.credentials.yaml / .env only).
+    # Default URL is documented Composio Connect; COMPOSIO_MCP_URL overrides
+    # it with a dashboard or session.mcp.url value. Headers follow the
+    # Connect (x-consumer-api-key) and session (x-api-key) hooks.
+    - id: mcp-composio
+      name: '@deepseek-ai/dsh-mcp-client'
+      disabled: !!js !(process.env.COMPOSIO_API_KEY || process.env.COMPOSIO_MCP_URL)
+      config:
+        serverName: composio
+        transport: streamable-http
+        url: !!js process.env.COMPOSIO_MCP_URL || 'https://connect.composio.dev/mcp'
+        failOnStartupError: false
+        headers:
+          x-api-key: !!js process.env.COMPOSIO_API_KEY ?? ''
+          x-consumer-api-key: !!js process.env.COMPOSIO_API_KEY ?? ''
+
+    - id: workspace-alberta
+      name: '@deepseek-ai/dsh-workspace-alberta'
+      config:
+        productTitle: WorkspaceAlberta

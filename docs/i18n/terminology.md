@@ -38,7 +38,11 @@
 | agent loop | agent loop | agent loop（智能体循环） | | |
 | blob hash | blob hash | | | `git hash-object` 的结果 |
 | coding agent | coding agent | coding agent（编程智能体） | | agent 组合词，正文保留英文 |
-| Cordis | Cordis | | | |
+| Command A+ | Command A+ | | | Cohere 模型族名称，正文保留英文 |
+| CanadaBuys | CanadaBuys | | | |
+| Cohere | Cohere | | | |
+| Composio | Composio | | | |
+| Cordis | Cordis | | |
 | dispose | dispose | dispose（资源释放） | | |
 | doc-sync | doc-sync | doc-sync（文档同步门禁） | | |
 | fiber | fiber | | | |
@@ -68,8 +72,10 @@
 | transcript | transcript | transcript（文本记录） | | 指会话渲染给用户或编辑器的完整文本，区别于事件日志 |
 | Typert | Typert | | TypeRT、typeRT、Type RT | DeepSeek Harness 类型图、生成器、loader 与运行时 registry 的产品拼写 |
 | waterfall | waterfall | waterfall（瀑布式事件） | | |
+| Warre & Vavasour | Warre & Vavasour | | | 产品方名称，正文保留英文 |
 | wheel | wheel 包 | | | Python 打包格式 |
 | worktree | worktree | | | git 工作区概念 |
+| WorkspaceAlberta | WorkspaceAlberta | | | Warre & Vavasour 产品 profile 名称；本仓库以官方 `dsh --profile workspace-alberta` 交付 |
 | Zstandard | Zstandard | | | RFC 8878 compression format; `zstd` remains a code value. |
 
 ## 双语类（中英文文本各自使用中英文）
