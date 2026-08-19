@@ -17,6 +17,21 @@ The harness ships a Web UI with two views over the same trace:
 
 Both views render from the same canonical `session/event` stream; there is no second source of truth.
 
+## WorkspaceAlberta product profile
+
+This checkout ships an in-box `workspace-alberta` profile on official DeepSeek Harness: the same `dsh` launcher, plugin system, Web UI, and [`dsh-mcp-client`](packages/mcp/mcp-client/README.md). It is not an Electron desktop and does not replace the harness with a toy client. Raspberry Pi hardware, Desktop Electron, gbrain, and the j-space skill stay unchanged.
+
+From this repository, after `pnpm install` and `pnpm run build`:
+
+```sh
+pnpm dsh --profile workspace-alberta
+pnpm dsh --profile workspace-alberta --dump-default-config
+```
+
+First use writes `$DSH_HOME/profiles/workspace-alberta/{package.json,cordis.patch.yml}` from the shipped template (`@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, `@deepseek-ai/dsh-workspace-alberta`). The composition source of truth is [`packages/bundle/workspace-alberta/cordis.patch.yml`](packages/bundle/workspace-alberta/cordis.patch.yml). A live `~/.dsh` install (the Pi) must run this fork's `dsh` so that in-box bundle resolves; do not invent a second runtime.
+
+Defaults for that profile: Cohere Command A+ (`COHERE_API_KEY`, Compatibility API `https://api.cohere.ai/compatibility/v1`), official streamable-http MCP at `https://elbowsupknivesout.warreandvavasour.com/mcp` (override with `WORKSPACE_ALBERTA_MCP_URL`; local fallback is `python mcp-servers/canadabuys/server.py` from [HarleyCoops/WorkspaceAlberta](https://github.com/HarleyCoops/WorkspaceAlberta)), and a Composio MCP row gated on `COMPOSIO_API_KEY` / `COMPOSIO_MCP_URL`. No API keys are committed. Details: [`packages/bundle/workspace-alberta/README.md`](packages/bundle/workspace-alberta/README.md).
+
 ## The canonical session trace
 
 One log per session, append-only, with every record carrying a sequence number and a timestamp. It is the single source of truth for:
